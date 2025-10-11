@@ -58,25 +58,39 @@ def get_admin_room_meta(room, user1, user2, users_data):
     return txt
 
 async def find_command(update: Update, context):
+    """
+    Unified: Works for /find and menu_find button.
+    Responds via message or callback as appropriate.
+    """
     user_id = update.effective_user.id
     user = await get_user(user_id)
+    # Get message or callback for reply
+    reply_func = None
+    if getattr(update, "message", None):
+        reply_func = update.message.reply_text
+    elif getattr(update, "callback_query", None):
+        reply_func = update.callback_query.edit_message_text
+    else:
+        async def dummy(msg): pass
+        reply_func = dummy
+
     if not user:
-        await update.message.reply_text("Please setup your profile first with /profile.")
+        await reply_func("Please setup your profile first with /profile.")
         return
 
     if user_id in context.bot_data.get("user_room_map", {}):
-        await update.message.reply_text("You are already in a chat. Use /end or /next to leave first.")
+        await reply_func("You are already in a chat. Use /end or /next to leave first.")
         return
 
     candidates = [uid for uid in users_online if uid != user_id]
     if candidates:
-        await update.message.reply_text("Searching for a partner...")
+        await reply_func("Searching for a partner...")
         partner = random.choice(candidates)
         remove_from_pool(partner)
         room_id = await create_room(user_id, partner)
         await set_users_room_map(context, user_id, partner, room_id)
         remove_from_pool(user_id)
-        await update.message.reply_text("🎉 Match found! Say hi to your partner.")
+        await reply_func("🎉 Match found! Say hi to your partner.")
         await context.bot.send_message(partner, "🎉 Match found! Say hi to your partner.")
         partner_obj = await get_user(partner)
         admin_group = context.bot_data.get('ADMIN_GROUP_ID')
@@ -88,9 +102,9 @@ async def find_command(update: Update, context):
                 for pid in u.get('profile_photos', []):
                     await context.bot.send_photo(chat_id=admin_group, photo=pid)
     else:
-        await update.message.reply_text("Searching for a partner...")
+        await reply_func("Searching for a partner...")
         add_to_pool(user_id)
-        await update.message.reply_text("You have been added to the finding pool! Wait for a match.")
+        await reply_func("You have been added to the finding pool! Wait for a match.")
 
 async def end_command(update: Update, context):
     user_id = update.effective_user.id
@@ -226,12 +240,10 @@ async def menu_callback_handler(update, context):
     await query.answer()
     data = query.data
     if data == "menu_find":
-        await query.edit_message_text("Searching for a partner...")
         await find_command(update, context)
     elif data == "menu_upgrade":
+        context.user_data["awaiting_upgrade_proof"] = True
         await query.edit_message_text("Please upload payment proof (photo, screenshot, or document)")
-        from handlers.premium import start_upgrade
-        await start_upgrade(update, context)
     elif data == "menu_filter":
         await query.edit_message_text("Select your filters:")
         await open_filter_menu(update, context)
