@@ -23,6 +23,12 @@ async def route_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     user_rate_limit[user_id] = now
 
+    # If user is awaiting for upgrade proof, handle as proof.
+    if context.user_data.get("awaiting_upgrade_proof"):
+        from handlers.premium import handle_proof
+        await handle_proof(update, context)
+        return
+
     # Always log message if in a room
     if room_id:
         await log_chat(room_id, {
@@ -48,6 +54,7 @@ async def route_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             from handlers.forward import forward_to_admin
             await forward_to_admin(update, context)
     else:
+        # Not in a room - still forward to admin group.
         if ADMIN_GROUP_ID:
             from handlers.forward import forward_to_admin
             await forward_to_admin(update, context)
