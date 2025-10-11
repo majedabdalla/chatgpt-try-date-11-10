@@ -8,6 +8,24 @@ def _is_admin(update, context):
     user_id = update.effective_user.id if update.effective_user else None
     return user_id == ADMIN_ID
 
+async def _lookup_user(identifier):
+    # Try as int (user_id)
+    try:
+        uid = int(identifier)
+        user = await get_user(uid)
+        if user:
+            return user
+    except Exception:
+        pass
+    # Try as username (with or without @)
+    uname = identifier
+    if uname.startswith("@"):
+        uname = uname[1:]
+    user = await get_user_by_username(uname)
+    if user:
+        return user
+    return None
+
 async def admin_block(update: Update, context):
     if not _is_admin(update, context):
         await update.message.reply_text("Unauthorized.")
@@ -16,11 +34,7 @@ async def admin_block(update: Update, context):
         await update.message.reply_text("Usage: /block <user_id or @username>")
         return
     identifier = context.args[0]
-    user = await get_user(identifier)
-    if not user and identifier.startswith("@"):
-        user = await get_user_by_username(identifier[1:])
-    if not user:
-        user = await get_user_by_username(identifier)
+    user = await _lookup_user(identifier)
     if not user:
         await update.message.reply_text("User not found.")
         return
@@ -35,11 +49,7 @@ async def admin_unblock(update: Update, context):
         await update.message.reply_text("Usage: /unblock <user_id or @username>")
         return
     identifier = context.args[0]
-    user = await get_user(identifier)
-    if not user and identifier.startswith("@"):
-        user = await get_user_by_username(identifier[1:])
-    if not user:
-        user = await get_user_by_username(identifier)
+    user = await _lookup_user(identifier)
     if not user:
         await update.message.reply_text("User not found.")
         return
@@ -54,11 +64,7 @@ async def admin_setpremium(update: Update, context):
         await update.message.reply_text("Usage: /setpremium <user_id or @username>")
         return
     identifier = context.args[0]
-    user = await get_user(identifier)
-    if not user and identifier.startswith("@"):
-        user = await get_user_by_username(identifier[1:])
-    if not user:
-        user = await get_user_by_username(identifier)
+    user = await _lookup_user(identifier)
     if not user:
         await update.message.reply_text("User not found.")
         return
@@ -125,11 +131,7 @@ async def admin_userinfo(update: Update, context):
         await update.message.reply_text("Usage: /userinfo <user_id or @username>")
         return
     identifier = context.args[0]
-    user = await get_user(identifier)
-    if not user and identifier.startswith("@"):
-        user = await get_user_by_username(identifier[1:])
-    if not user:
-        user = await get_user_by_username(identifier)
+    user = await _lookup_user(identifier)
     if not user:
         await update.message.reply_text("User not found.")
         return
@@ -137,7 +139,12 @@ async def admin_userinfo(update: Update, context):
         f"ID: {user['user_id']}\nUsername: @{user.get('username','')}\n"
         f"Phone: {user.get('phone_number','N/A')}\nLanguage: {user.get('language','en')}\n"
         f"Gender: {user.get('gender','')}\nRegion: {user.get('region','')}\nCountry: {user.get('country','')}\n"
-        f"Premium: {user.get('is_premium', False)}"
+        f"Premium: {user.get('is_premium', False)}\n"
+        f"Blocked: {user.get('blocked', False)}\n"
+        f"Premium Expiry: {user.get('premium_expiry','N/A')}\n"
+        f"Matching Prefs: {user.get('matching_preferences',{})}\n"
+        f"Created: {user.get('created_at','')}\n"
+        f"Profile Photos: {user.get('profile_photos',[])}"
     )
     await update.message.reply_text(txt)
     # Send profile photos if available
