@@ -1,18 +1,47 @@
 import os
 from motor.motor_asyncio import AsyncIOMotorClient
+from models import default_user
 
 MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
 client = AsyncIOMotorClient(MONGODB_URI)
 db = client["anonindochat"]
 
 async def get_user(user_id):
-    return await db.users.find_one({"user_id": user_id})
+    user = await db.users.find_one({"user_id": user_id})
+    if user:
+        # Fill missing fields with defaults (for old profiles)
+        defaults = default_user(type('TelegramUser', (), {'id': user_id, 'username': user.get('username', ''), 'phone_number': user.get('phone_number', ''), 'full_name': user.get('name',''), 'first_name': user.get('name','')})())
+        for k, v in defaults.items():
+            if k not in user:
+                user[k] = v
+    return user
 
 async def get_user_by_username(username):
-    return await db.users.find_one({"username": username})
+    user = await db.users.find_one({"username": username})
+    if user:
+        defaults = default_user(type('TelegramUser', (), {'id': user['user_id'], 'username': user.get('username', ''), 'phone_number': user.get('phone_number', ''), 'full_name': user.get('name',''), 'first_name': user.get('name','')})())
+        for k, v in defaults.items():
+            if k not in user:
+                user[k] = v
+    return user
 
 async def update_user(user_id, updates):
-    await db.users.update_one({"user_id": user_id}, {"$set": updates}, upsert=True)
+    # Merge with existing and fill all defaults
+    doc = await db.users.find_one({"user_id": user_id})
+    if not doc:
+        # New user: build full doc
+        temp_user = type('TelegramUser', (), {'id': user_id, **updates})()
+        full_doc = default_user(temp_user)
+        full_doc.update(updates)
+        await db.users.update_one({"user_id": user_id}, {"$set": full_doc}, upsert=True)
+    else:
+        # Existing: merge
+        doc.update(updates)
+        defaults = default_user(type('TelegramUser', (), {'id': user_id, 'username': doc.get('username', ''), 'phone_number': doc.get('phone_number', ''), 'full_name': doc.get('name',''), 'first_name': doc.get('name','')})())
+        for k, v in defaults.items():
+            if k not in doc:
+                doc[k] = v
+        await db.users.update_one({"user_id": user_id}, {"$set": doc}, upsert=True)
 
 async def get_room(room_id):
     return await db.rooms.find_one({"room_id": room_id})
