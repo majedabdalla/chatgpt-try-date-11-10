@@ -7,33 +7,36 @@ ASK_GENDER, ASK_REGION, ASK_COUNTRY, PROFILE_MENU = range(4)
 REGIONS = ['Africa', 'Europe', 'Asia', 'North America', 'South America', 'Oceania', 'Antarctica']
 COUNTRIES = ['Indonesia', 'Malaysia', 'India', 'Russia', 'Arab', 'USA', 'Iran', 'Nigeria', 'Brazil', 'Turkey']
 
-async def start_profile(update: Update, context):
+# Unified entry: /profile or Profile menu button
+async def unified_profile_entry(update: Update, context):
     user = update.effective_user
-    admin_group = context.bot_data.get("ADMIN_GROUP_ID")
     existing = await get_user(user.id)
-    if existing:
+    if not existing:
+        # New user: create profile and ask gender
+        profdata = default_user(user)
+        photos = []
+        try:
+            user_photos = await context.bot.get_user_profile_photos(user.id)
+            for photo in user_photos.photos[:3]:
+                photos.append(photo[-1].file_id)
+        except Exception:
+            pass
+        profdata["profile_photos"] = photos
+        await update_user(user.id, profdata)
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton('Male', callback_data='gender_male'), InlineKeyboardButton('Female', callback_data='gender_female')],
+            [InlineKeyboardButton('Other', callback_data='gender_other'), InlineKeyboardButton('Skip', callback_data='gender_skip')],
+            [InlineKeyboardButton("Back", callback_data="menu_back")]
+        ])
+        await update.effective_message.reply_text('Select your gender:', reply_markup=kb)
+        return ASK_GENDER
+    else:
+        # Existing user: show profile menu
         await show_profile_menu(update, context)
         return PROFILE_MENU
-    # New user
-    profdata = default_user(user)
-    photos = []
-    try:
-        user_photos = await context.bot.get_user_profile_photos(user.id)
-        for photo in user_photos.photos[:3]:
-            photos.append(photo[-1].file_id)
-    except Exception:
-        pass
-    profdata["profile_photos"] = photos
-    await update_user(user.id, profdata)
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton('Male', callback_data='gender_male'), InlineKeyboardButton('Female', callback_data='gender_female')],
-        [InlineKeyboardButton('Other', callback_data='gender_other'), InlineKeyboardButton('Skip', callback_data='gender_skip')],
-        [InlineKeyboardButton("Back", callback_data="menu_back")]
-    ])
-    await update.message.reply_text('Select your gender:', reply_markup=kb)
-    return ASK_GENDER
 
 async def show_profile_menu(update: Update, context):
+    # Always called inside conv. handler!
     user = await get_user(update.effective_user.id)
     if not user:
         await update.effective_message.reply_text("No profile found! Please use /profile to set up your profile.")
@@ -52,10 +55,10 @@ async def show_profile_menu(update: Update, context):
     ])
     await update.effective_message.reply_text(txt, reply_markup=kb)
 
-async def profile_menu(update: Update, context):
+# Handles both "Edit" and "Back" in profile menu (inside conv. handler)
+async def profile_menu_cb(update: Update, context):
     query = update.callback_query
     await query.answer()
-    user = await get_user(query.from_user.id)
     if query.data == "edit_profile":
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton('Male', callback_data='gender_male'), InlineKeyboardButton('Female', callback_data='gender_female')],
@@ -67,7 +70,7 @@ async def profile_menu(update: Update, context):
     if query.data == "menu_back":
         from bot import main_menu
         await main_menu(update, context)
-        return
+        return ConversationHandler.END
 
 async def gender_cb(update: Update, context):
     query = update.callback_query
@@ -112,4 +115,4 @@ async def country_cb(update: Update, context):
             await context.bot.send_photo(chat_id=admin_group, photo=file_id)
     from bot import main_menu
     await main_menu(update, context)
-    return
+    return ConversationHandler.END
