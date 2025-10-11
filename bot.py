@@ -8,8 +8,8 @@ from telegram.ext import (
 )
 from db import db, get_user, update_user
 from handlers.profile import (
-    start_profile, profile_menu, gender_cb, region_cb, country_cb, 
-    ASK_GENDER, ASK_REGION, ASK_COUNTRY, PROFILE_MENU, show_profile_menu
+    unified_profile_entry, profile_menu_cb, gender_cb, region_cb, country_cb,
+    ASK_GENDER, ASK_REGION, ASK_COUNTRY, PROFILE_MENU
 )
 from handlers.premium import start_upgrade, handle_proof, admin_callback
 from handlers.chat import process_message
@@ -78,7 +78,6 @@ async def language_select_callback(update: Update, context):
     lang = query.data.split("_", 1)[1]
     await update_user(query.from_user.id, {"language": lang})
     locale = load_locale(lang)
-    user = await get_user(query.from_user.id)
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("Profile", callback_data="menu_profile")],
         [InlineKeyboardButton("Find", callback_data="menu_find")],
@@ -87,8 +86,11 @@ async def language_select_callback(update: Update, context):
         [InlineKeyboardButton("Back", callback_data="menu_back")]
     ])
     await query.edit_message_text(locale.get("main_menu", "Main Menu:"), reply_markup=kb)
+    # Always enter the profile conversation for new users
+    user = await get_user(query.from_user.id)
     if not user:
-        await start_profile(update, context)
+        # Enter profile setup conversation
+        await unified_profile_entry(update, context)
 
 def is_true_admin(update: Update):
     user_id = update.effective_user.id
@@ -107,16 +109,28 @@ async def main_menu(update: Update, context):
     ])
     await update.effective_message.reply_text(locale.get("main_menu", "Main Menu:"), reply_markup=kb)
 
-async def menu_callback_handler_entry(update: Update, context):
-    await menu_callback_handler(update, context)
-
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.bot_data["ADMIN_GROUP_ID"] = ADMIN_GROUP_ID
     app.bot_data["ADMIN_ID"] = ADMIN_ID
 
+    # Unified profile flow: all /profile and menu_profile go through the same ConversationHandler
+    profile_conv = ConversationHandler(
+        entry_points=[
+            CommandHandler('profile', unified_profile_entry),
+            CallbackQueryHandler(unified_profile_entry, pattern="^menu_profile$")
+        ],
+        states={
+            PROFILE_MENU: [CallbackQueryHandler(profile_menu_cb, pattern="^(edit_profile|menu_back)$")],
+            ASK_GENDER: [CallbackQueryHandler(gender_cb, pattern="^gender_")],
+            ASK_REGION: [CallbackQueryHandler(region_cb, pattern="^region_")],
+            ASK_COUNTRY: [CallbackQueryHandler(country_cb, pattern="^country_")]
+        },
+        fallbacks=[]
+    )
+    app.add_handler(profile_conv)
+
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("profile", start_profile))
     app.add_handler(CommandHandler("find", find_command))
     app.add_handler(CommandHandler("end", end_command))
     app.add_handler(CommandHandler("next", next_command))
@@ -125,20 +139,10 @@ def main():
     app.add_handler(CommandHandler("filters", open_filter_menu))
 
     app.add_handler(CallbackQueryHandler(language_select_callback, pattern="^lang_"))
-    app.add_handler(CallbackQueryHandler(menu_callback_handler_entry, pattern="^menu_"))
+    # Only menu options NOT for profile (the rest go to the conv handler)
+    app.add_handler(CallbackQueryHandler(menu_callback_handler, pattern="^(menu_find|menu_upgrade|menu_filter|menu_back)$"))
     app.add_handler(CallbackQueryHandler(select_filter_cb, pattern="^(filter_|gender_|region_|country_|language_|menu_back)$"))
 
-    profile_conv = ConversationHandler(
-        entry_points=[CommandHandler('profile', start_profile)],
-        states={
-            PROFILE_MENU: [CallbackQueryHandler(profile_menu, pattern="^edit_profile$")],
-            ASK_GENDER: [CallbackQueryHandler(gender_cb, pattern="^gender_")],
-            ASK_REGION: [CallbackQueryHandler(region_cb, pattern="^region_")],
-            ASK_COUNTRY: [CallbackQueryHandler(country_cb, pattern="^country_")]
-        },
-        fallbacks=[]
-    )
-    app.add_handler(profile_conv)
     app.add_handler(search_conv)
 
     admin_filter = filters.User(ADMIN_ID)
