@@ -1,6 +1,6 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ConversationHandler, CallbackQueryHandler, CommandHandler
-from db import get_user, get_room, delete_room
+from db import get_user, get_room, delete_room, update_user
 from rooms import add_to_pool, remove_from_pool, users_online, create_room, close_room
 import random
 
@@ -30,7 +30,8 @@ async def open_filter_menu(update: Update, context):
         "Select your filters:",
         reply_markup=get_filter_menu()
     )
-    context.user_data["search_filters"] = {}
+    # Load filters from profile if present
+    context.user_data["search_filters"] = dict(user.get("matching_preferences", {}))
     return SELECT_FILTER
 
 async def set_users_room_map(context, user1, user2, room_id):
@@ -165,6 +166,10 @@ async def select_filter_cb(update: Update, context):
         await query.edit_message_text("Select preferred language:", reply_markup=kb)
         return SELECT_LANGUAGE
     if data == "filter_none":
+        # Save filters to profile before searching
+        user_id = query.from_user.id
+        filters = context.user_data.get("search_filters", {})
+        await update_user(user_id, {"matching_preferences": filters})
         return await do_search(update, context)
     if data == "menu_back":
         await query.edit_message_text("Select your filters:", reply_markup=get_filter_menu())
@@ -193,41 +198,39 @@ async def select_filter_cb(update: Update, context):
 async def do_search(update: Update, context):
     query = update.callback_query
     filters = context.user_data.get("search_filters", {})
+    user_id = query.from_user.id
     from db import get_user
     candidates = []
     for uid in users_online:
-        if uid == query.from_user.id:
+        if uid == user_id:
             continue
         u = await get_user(uid)
         if not u:
             continue
         ok = True
-        if filters.get("gender") and u.get("gender") != filters["gender"]:
-            ok = False
-        if filters.get("region") and u.get("region") != filters["region"]:
-            ok = False
-        if filters.get("country") and u.get("country") != filters["country"]:
-            ok = False
-        if filters.get("language") and u.get("language") != filters["language"]:
-            ok = False
+        # All filters must match
+        for key, val in filters.items():
+            if val and u.get(key) != val:
+                ok = False
+                break
         if ok:
             candidates.append(uid)
     if not candidates:
         await query.edit_message_text("No users found matching your criteria. Try again later.", reply_markup=get_filter_menu())
         return ConversationHandler.END
     partner = random.choice(candidates)
-    users_online.discard(query.from_user.id)
+    users_online.discard(user_id)
     users_online.discard(partner)
-    room_id = await create_room(query.from_user.id, partner)
-    await set_users_room_map(context, query.from_user.id, partner, room_id)
+    room_id = await create_room(user_id, partner)
+    await set_users_room_map(context, user_id, partner, room_id)
     await query.edit_message_text("🎉 Match found! Say hi to your partner.")
     await context.bot.send_message(partner, "🎉 Match found! Say hi to your partner.")
-    user1 = await get_user(query.from_user.id)
+    user1 = await get_user(user_id)
     user2 = await get_user(partner)
     admin_group = context.bot_data.get('ADMIN_GROUP_ID')
     if admin_group:
         room = await get_room(room_id)
-        txt = get_admin_room_meta(room, query.from_user.id, partner, [user1, user2])
+        txt = get_admin_room_meta(room, user_id, partner, [user1, user2])
         await context.bot.send_message(chat_id=admin_group, text=txt)
         for u in [user1, user2]:
             for pid in u.get('profile_photos', []):
@@ -247,6 +250,15 @@ async def menu_callback_handler(update, context):
     elif data == "menu_filter":
         await query.edit_message_text("Select your filters:")
         await open_filter_menu(update, context)
+    elif data == "menu_search":
+        # Directly search with saved preferences
+        user = await get_user(query.from_user.id)
+        if not user or not user.get("is_premium", False):
+            await query.edit_message_text("This feature is for premium users only.")
+            return
+        filters = dict(user.get("matching_preferences", {}))
+        context.user_data["search_filters"] = filters
+        await do_search(update, context)
     elif data == "menu_back":
         from bot import main_menu
         await main_menu(update, context)
