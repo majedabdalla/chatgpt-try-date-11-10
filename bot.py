@@ -158,7 +158,9 @@ def main():
     app.add_handler(CommandHandler("setpremium", admin_setpremium, admin_filter))
 
     app.add_handler(CallbackQueryHandler(admin_callback))
-    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, handle_proof))
+
+    # Only handle proof if user is in proof mode; otherwise, route_message handles all media
+    # Remove: app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, handle_proof))
     app.add_handler(MessageHandler(~filters.COMMAND, route_message))
     app.add_error_handler(lambda update, context: logger.error(msg="Exception while handling an update:", exc_info=context.error))
 
