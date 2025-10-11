@@ -81,9 +81,8 @@ async def language_select_callback(update: Update, context):
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("Profile", callback_data="menu_profile")],
         [InlineKeyboardButton("Find", callback_data="menu_find")],
-        [InlineKeyboardButton("Upgrade", callback_data="menu_upgrade")],
-        [InlineKeyboardButton("Filters", callback_data="menu_filter")],
-        [InlineKeyboardButton("Back", callback_data="menu_back")]
+        [InlineKeyboardButton("Upgrade", callback_data="menu_upgrade")]
+        # No Back button here
     ])
     await query.edit_message_text(locale.get("main_menu", "Main Menu:"), reply_markup=kb)
     # Always enter the profile conversation for new users
@@ -100,14 +99,16 @@ async def main_menu(update: Update, context):
     user = await get_user(update.effective_user.id)
     lang = user.get("language", "en") if user else "en"
     locale = load_locale(lang)
-    kb = InlineKeyboardMarkup([
+    # Only show filters and search for premium users
+    kb = [
         [InlineKeyboardButton("Profile", callback_data="menu_profile")],
         [InlineKeyboardButton("Find", callback_data="menu_find")],
-        [InlineKeyboardButton("Upgrade", callback_data="menu_upgrade")],
-        [InlineKeyboardButton("Filters", callback_data="menu_filter")],
-        [InlineKeyboardButton("Back", callback_data="menu_back")]
-    ])
-    await update.effective_message.reply_text(locale.get("main_menu", "Main Menu:"), reply_markup=kb)
+        [InlineKeyboardButton("Upgrade", callback_data="menu_upgrade")]
+    ]
+    if user and user.get("is_premium", False):
+        kb.append([InlineKeyboardButton("Filters", callback_data="menu_filter")])
+        kb.append([InlineKeyboardButton("Search", callback_data="menu_search")])
+    await update.effective_message.reply_text(locale.get("main_menu", "Main Menu:"), reply_markup=InlineKeyboardMarkup(kb))
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
@@ -139,8 +140,7 @@ def main():
     app.add_handler(CommandHandler("filters", open_filter_menu))
 
     app.add_handler(CallbackQueryHandler(language_select_callback, pattern="^lang_"))
-    # Only menu options NOT for profile (the rest go to the conv handler)
-    app.add_handler(CallbackQueryHandler(menu_callback_handler, pattern="^(menu_find|menu_upgrade|menu_filter|menu_back)$"))
+    app.add_handler(CallbackQueryHandler(menu_callback_handler, pattern="^(menu_find|menu_upgrade|menu_filter|menu_search|menu_back)$"))
     app.add_handler(CallbackQueryHandler(select_filter_cb, pattern="^(filter_|gender_|region_|country_|language_|menu_back)$"))
 
     app.add_handler(search_conv)
@@ -159,8 +159,6 @@ def main():
 
     app.add_handler(CallbackQueryHandler(admin_callback))
 
-    # Only handle proof if user is in proof mode; otherwise, route_message handles all media
-    # Remove: app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, handle_proof))
     app.add_handler(MessageHandler(~filters.COMMAND, route_message))
     app.add_error_handler(lambda update, context: logger.error(msg="Exception while handling an update:", exc_info=context.error))
 
