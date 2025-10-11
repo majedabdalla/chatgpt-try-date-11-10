@@ -220,15 +220,12 @@ async def do_search(update: Update, context):
                 await context.bot.send_photo(chat_id=admin_group, photo=pid)
     return ConversationHandler.END
 
-# Main menu callback handler for inline menu actions
+# Menu callback handler for non-profile menus (filters, find, upgrade, back)
 async def menu_callback_handler(update, context):
     query = update.callback_query
     await query.answer()
     data = query.data
-    if data == "menu_profile":
-        from handlers.profile import show_profile_menu
-        await show_profile_menu(update, context)
-    elif data == "menu_find":
+    if data == "menu_find":
         await query.edit_message_text("Searching for a partner...")
         await find_command(update, context)
     elif data == "menu_upgrade":
