@@ -4,9 +4,8 @@ from db import get_user, get_room, delete_room, update_user
 from rooms import add_to_pool, remove_from_pool, users_online, create_room, close_room
 import random
 
-SELECT_FILTER, SELECT_GENDER, SELECT_REGION, SELECT_COUNTRY, SELECT_LANGUAGE = range(5)
+SELECT_FILTER, SELECT_GENDER, SELECT_REGION, SELECT_LANGUAGE = range(4)
 REGIONS = ['Africa', 'Europe', 'Asia', 'North America', 'South America', 'Oceania', 'Antarctica']
-COUNTRIES = ['Indonesia', 'Malaysia', 'India', 'Russia', 'Arab', 'USA', 'Iran', 'Nigeria', 'Brazil', 'Turkey']
 GENDERS = ['male', 'female', 'other']
 LANGUAGES = ['en', 'ar', 'hi', 'id']
 
@@ -21,19 +20,16 @@ def get_user_locale(user):
     return lang
 
 def get_filter_menu(lang, context, filters):
-    # Buttons are translated
     from bot import load_locale
     locale = load_locale(lang)
     def get_label(key, value=None):
         if value:
-            # Try label: key_value (e.g. gender_male)
             label = locale.get(f"{key}_{value}", value)
             if label == value:
                 label = value.capitalize()
             return label
         return locale.get(key, key)
     selected = filters or {}
-    # Compose button text with selected values
     rows = [
         [InlineKeyboardButton(
             f"{get_label('gender')}: {get_label('gender', selected.get('gender', get_label('gender_skip')))}",
@@ -44,11 +40,7 @@ def get_filter_menu(lang, context, filters):
             callback_data="filter_region"
         )],
         [InlineKeyboardButton(
-            f"{get_label('country')}: {selected.get('country', get_label('gender_skip'))}",
-            callback_data="filter_country"
-        )],
-        [InlineKeyboardButton(
-            f"{get_label('language')}: {selected.get('language', get_label('gender_skip'))}",
+            f"{get_label('language')}: {get_label('language', selected.get('language', get_label('gender_skip')))}",
             callback_data="filter_language"
         )],
         [InlineKeyboardButton(get_label('save_filters'), callback_data="save_filters")],
@@ -65,7 +57,6 @@ async def open_filter_menu(update: Update, context):
     if not user or not user.get("is_premium", False):
         await update.effective_message.reply_text(locale.get("premium_only", "This feature is for premium users only."))
         return ConversationHandler.END
-    # Load filters from profile if present
     context.user_data["search_filters"] = dict(user.get("matching_preferences", {}))
     await update.effective_message.reply_text(
         locale.get("select_filters", "Set your filters below:"),
@@ -90,7 +81,7 @@ def get_admin_room_meta(room, user1, user2, users_data):
     def meta(u):
         return (
             f"ID: {u.get('user_id')} | Username: @{u.get('username','')} | Phone: {u.get('phone_number','N/A')}\n"
-            f"Language: {u.get('language','en')}, Gender: {u.get('gender','')}, Region: {u.get('region','')}, Country: {u.get('country','')}, Premium: {u.get('is_premium', False)}"
+            f"Language: {u.get('language','en')}, Gender: {u.get('gender','')}, Region: {u.get('region','')}, Premium: {u.get('is_premium', False)}"
         )
     txt = f"🆕 New Room Created\nRoomID: {room['room_id']}\n" \
           f"👤 User1:\n{meta(users_data[0])}\n" \
@@ -168,7 +159,6 @@ async def next_command(update: Update, context):
     await find_command(update, context)
 
 async def select_filter_cb(update: Update, context):
-    """Inline MCQ filter logic. Each click updates filter state, user can set as many or few as desired."""
     query = update.callback_query
     user_id = query.from_user.id
     user = await get_user(user_id)
@@ -178,7 +168,6 @@ async def select_filter_cb(update: Update, context):
     filters = context.user_data.get("search_filters", {})
     await query.answer()
     data = query.data
-    # MCQ logic for each filter
     if data == "filter_gender":
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton(locale.get(f"gender_{g}", g.capitalize()), callback_data=f"gender_{g}") for g in GENDERS],
@@ -195,14 +184,6 @@ async def select_filter_cb(update: Update, context):
         )
         await query.edit_message_text(locale.get("ask_region", "Select your region:"), reply_markup=kb)
         return SELECT_REGION
-    if data == "filter_country":
-        kb = InlineKeyboardMarkup(
-            [[InlineKeyboardButton(c, callback_data=f"country_{c}")] for c in COUNTRIES] +
-            [[InlineKeyboardButton(locale.get("gender_skip", "Skip"), callback_data="country_skip")],
-             [InlineKeyboardButton(locale.get("menu_back", "Back"), callback_data="menu_back")]]
-        )
-        await query.edit_message_text(locale.get("ask_country", "Select your country:"), reply_markup=kb)
-        return SELECT_COUNTRY
     if data == "filter_language":
         kb = InlineKeyboardMarkup(
             [[InlineKeyboardButton(locale.get(f"lang_{l}", l.upper()), callback_data=f"language_{l}")] for l in LANGUAGES] +
@@ -212,7 +193,6 @@ async def select_filter_cb(update: Update, context):
         await query.edit_message_text(locale.get("ask_language", "Select preferred language:"), reply_markup=kb)
         return SELECT_LANGUAGE
 
-    # Set filter value
     if data.startswith("gender_"):
         val = data.split("_", 1)[1]
         if val != "skip":
@@ -231,15 +211,6 @@ async def select_filter_cb(update: Update, context):
         context.user_data["search_filters"] = filters
         await query.edit_message_text(locale.get("select_filters", "Set your filters below:"), reply_markup=get_filter_menu(lang, context, filters))
         return SELECT_FILTER
-    if data.startswith("country_"):
-        val = data.split("_", 1)[1]
-        if val != "skip":
-            filters["country"] = val
-        else:
-            filters.pop("country", None)
-        context.user_data["search_filters"] = filters
-        await query.edit_message_text(locale.get("select_filters", "Set your filters below:"), reply_markup=get_filter_menu(lang, context, filters))
-        return SELECT_FILTER
     if data.startswith("language_"):
         val = data.split("_", 1)[1]
         if val != "skip":
@@ -251,7 +222,6 @@ async def select_filter_cb(update: Update, context):
         return SELECT_FILTER
 
     if data == "save_filters":
-        # Save filters to user profile. Unset filters = match any.
         await update_user(user_id, {"matching_preferences": filters})
         await query.edit_message_text(locale.get("filters_saved", "Your filters have been saved."))
         return ConversationHandler.END
@@ -320,7 +290,7 @@ async def menu_callback_handler(update, context):
         await query.edit_message_text(locale.get("upgrade_tip", "Please upload payment proof (photo, screenshot, or document)"))
     elif data == "menu_filter":
         if user.get("is_premium", False):
-            await open_filter_menu(update, context)
+            return await open_filter_menu(update, context)
         else:
             await query.edit_message_text(locale.get("premium_only", "This feature is for premium users only."))
     elif data == "menu_search":
@@ -335,12 +305,11 @@ async def menu_callback_handler(update, context):
         await query.edit_message_text(locale.get("unknown_option", "Unknown menu option."))
 
 search_conv = ConversationHandler(
-    entry_points=[CommandHandler('searchmypreferences', open_filter_menu)],
+    entry_points=[CommandHandler('filters', open_filter_menu)],
     states={
         SELECT_FILTER: [CallbackQueryHandler(select_filter_cb, pattern="^(filter_|save_filters|menu_back)$")],
         SELECT_GENDER: [CallbackQueryHandler(select_filter_cb, pattern="^(gender_|menu_back)$")],
         SELECT_REGION: [CallbackQueryHandler(select_filter_cb, pattern="^(region_|menu_back)$")],
-        SELECT_COUNTRY: [CallbackQueryHandler(select_filter_cb, pattern="^(country_|menu_back)$")],
         SELECT_LANGUAGE: [CallbackQueryHandler(select_filter_cb, pattern="^(language_|menu_back)$")]
     },
     fallbacks=[]
