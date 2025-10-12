@@ -1,7 +1,8 @@
 from telegram import Update
 from admin import block_user, unblock_user, send_admin_message, get_stats, add_blocked_word, remove_blocked_word, approve_premium
-from db import get_user, get_user_by_username, get_room, get_chat_history
+from db import get_user, get_user_by_username, get_room, get_chat_history, update_user
 from datetime import datetime, timedelta
+from rooms import create_room, close_room
 
 def _is_admin(update, context):
     ADMIN_ID = context.bot_data.get("ADMIN_ID")
@@ -9,7 +10,6 @@ def _is_admin(update, context):
     return user_id == ADMIN_ID
 
 async def _lookup_user(identifier):
-    # Try as int (user_id)
     try:
         uid = int(identifier)
         user = await get_user(uid)
@@ -17,7 +17,6 @@ async def _lookup_user(identifier):
             return user
     except Exception:
         pass
-    # Try as username (with or without @)
     uname = identifier
     if uname.startswith("@"):
         uname = uname[1:]
@@ -71,7 +70,21 @@ async def admin_setpremium(update: Update, context):
     expiry = await approve_premium(user["user_id"])
     await update.message.reply_text(f"User {user['user_id']} promoted to premium until {expiry}")
 
-# Alias for promote
+async def admin_resetpremium(update: Update, context):
+    if not _is_admin(update, context):
+        await update.message.reply_text("Unauthorized.")
+        return
+    if not context.args:
+        await update.message.reply_text("Usage: /resetpremium <user_id or @username>")
+        return
+    identifier = context.args[0]
+    user = await _lookup_user(identifier)
+    if not user:
+        await update.message.reply_text("User not found.")
+        return
+    await update_user(user["user_id"], {"is_premium": False, "premium_expiry": None})
+    await update.message.reply_text(f"User {user['user_id']} downgraded to normal user.")
+
 async def admin_promote(update: Update, context):
     return await admin_setpremium(update, context)
 
@@ -91,6 +104,27 @@ async def admin_message(update: Update, context):
         await update.message.reply_text("Message sent.")
     else:
         await update.message.reply_text("Failed to send message.")
+
+async def admin_adminroom(update: Update, context):
+    if not _is_admin(update, context):
+        await update.message.reply_text("Unauthorized.")
+        return
+    if not context.args:
+        await update.message.reply_text("Usage: /adminroom <user_id or @username>")
+        return
+    identifier = context.args[0]
+    user = await _lookup_user(identifier)
+    if not user:
+        await update.message.reply_text("User not found.")
+        return
+    admin_id = context.bot_data.get("ADMIN_ID")
+    # Create private room between admin and user
+    from rooms import create_room
+    room_id = await create_room(admin_id, user["user_id"])
+    # Set admin and user in "chat" (user_room_map)
+    context.bot_data.setdefault("user_room_map", {})[admin_id] = room_id
+    context.bot_data.setdefault("user_room_map", {})[user["user_id"]] = room_id
+    await update.message.reply_text(f"Private room with user {user['user_id']} created. Now chat as usual. Use /end to leave.")
 
 async def admin_stats(update: Update, context):
     if not _is_admin(update, context):
@@ -147,7 +181,6 @@ async def admin_userinfo(update: Update, context):
         f"Profile Photos: {user.get('profile_photos',[])}"
     )
     await update.message.reply_text(txt)
-    # Send profile photos if available
     for pid in user.get('profile_photos', []):
         await context.bot.send_photo(chat_id=update.effective_chat.id, photo=pid)
 
