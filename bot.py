@@ -16,7 +16,7 @@ from handlers.chat import process_message
 from handlers.report import report_partner
 from handlers.admincmds import (
     admin_block, admin_unblock, admin_message, admin_stats, admin_blockword, admin_unblockword,
-    admin_userinfo, admin_roominfo, admin_viewhistory, admin_setpremium
+    admin_userinfo, admin_roominfo, admin_viewhistory, admin_setpremium, admin_resetpremium, admin_adminroom
 )
 from handlers.match import (
     find_command, search_conv, end_command, next_command, open_filter_menu,
@@ -50,12 +50,26 @@ def load_locale(lang):
     except Exception:
         return {}
 
+def get_user_locale(user):
+    lang = "en"
+    if user:
+        dbuser = user if isinstance(user, dict) else None
+        if dbuser and dbuser.get("language"):
+            lang = dbuser["language"]
+        elif hasattr(user, "language_code"):
+            lang = user.language_code or "en"
+    return lang
+
+def make_inline_kb(rows, lang):
+    """rows: list of [("text_key", callback_data)]"""
+    locale = load_locale(lang)
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton(locale.get(text_key, text_key), callback_data=cb)] for text_key, cb in rows]
+    )
+
 async def reply_translated(update, context, key, **kwargs):
     user = update.effective_user
-    lang = "en"
-    dbuser = await get_user(user.id)
-    if dbuser and dbuser.get("language"):
-        lang = dbuser["language"]
+    lang = get_user_locale(await get_user(user.id))
     locale = load_locale(lang)
     msg = locale.get(key, key)
     if kwargs:
@@ -78,17 +92,16 @@ async def language_select_callback(update: Update, context):
     lang = query.data.split("_", 1)[1]
     await update_user(query.from_user.id, {"language": lang})
     locale = load_locale(lang)
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Profile", callback_data="menu_profile")],
-        [InlineKeyboardButton("Find", callback_data="menu_find")],
-        [InlineKeyboardButton("Upgrade", callback_data="menu_upgrade")]
-        # No Back button here
-    ])
+    kb = make_inline_kb([
+        ("profile", "menu_profile"),
+        ("find", "menu_find"),
+        ("upgrade_tip", "menu_upgrade"),
+        ("filters", "menu_filter"),
+        ("search", "menu_search")
+    ], lang)
     await query.edit_message_text(locale.get("main_menu", "Main Menu:"), reply_markup=kb)
-    # Always enter the profile conversation for new users
     user = await get_user(query.from_user.id)
     if not user:
-        # Enter profile setup conversation
         await unified_profile_entry(update, context)
 
 def is_true_admin(update: Update):
@@ -97,25 +110,22 @@ def is_true_admin(update: Update):
 
 async def main_menu(update: Update, context):
     user = await get_user(update.effective_user.id)
-    lang = user.get("language", "en") if user else "en"
+    lang = get_user_locale(user)
     locale = load_locale(lang)
-    # Only show filters and search for premium users
-    kb = [
-        [InlineKeyboardButton("Profile", callback_data="menu_profile")],
-        [InlineKeyboardButton("Find", callback_data="menu_find")],
-        [InlineKeyboardButton("Upgrade", callback_data="menu_upgrade")]
-    ]
-    if user and user.get("is_premium", False):
-        kb.append([InlineKeyboardButton("Filters", callback_data="menu_filter")])
-        kb.append([InlineKeyboardButton("Search", callback_data="menu_search")])
-    await update.effective_message.reply_text(locale.get("main_menu", "Main Menu:"), reply_markup=InlineKeyboardMarkup(kb))
+    kb = make_inline_kb([
+        ("profile", "menu_profile"),
+        ("find", "menu_find"),
+        ("upgrade_tip", "menu_upgrade"),
+        ("filters", "menu_filter"),
+        ("search", "menu_search")
+    ], lang)
+    await update.effective_message.reply_text(locale.get("main_menu", "Main Menu:"), reply_markup=kb)
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.bot_data["ADMIN_GROUP_ID"] = ADMIN_GROUP_ID
     app.bot_data["ADMIN_ID"] = ADMIN_ID
 
-    # Unified profile flow: all /profile and menu_profile go through the same ConversationHandler
     profile_conv = ConversationHandler(
         entry_points=[
             CommandHandler('profile', unified_profile_entry),
@@ -141,7 +151,7 @@ def main():
 
     app.add_handler(CallbackQueryHandler(language_select_callback, pattern="^lang_"))
     app.add_handler(CallbackQueryHandler(menu_callback_handler, pattern="^(menu_find|menu_upgrade|menu_filter|menu_search|menu_back)$"))
-    app.add_handler(CallbackQueryHandler(select_filter_cb, pattern="^(filter_|gender_|region_|country_|language_|menu_back)$"))
+    app.add_handler(CallbackQueryHandler(select_filter_cb, pattern="^(filter_|gender_|region_|country_|language_|save_filters|menu_back)$"))
 
     app.add_handler(search_conv)
 
@@ -156,6 +166,8 @@ def main():
     app.add_handler(CommandHandler("roominfo", admin_roominfo, admin_filter))
     app.add_handler(CommandHandler("viewhistory", admin_viewhistory, admin_filter))
     app.add_handler(CommandHandler("setpremium", admin_setpremium, admin_filter))
+    app.add_handler(CommandHandler("resetpremium", admin_resetpremium, admin_filter))
+    app.add_handler(CommandHandler("adminroom", admin_adminroom, admin_filter))
 
     app.add_handler(CallbackQueryHandler(admin_callback))
 
