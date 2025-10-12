@@ -10,16 +10,22 @@ async def route_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
     room_id = context.bot_data.get("user_room_map", {}).get(user_id)
     ADMIN_GROUP_ID = context.bot_data.get("ADMIN_GROUP_ID")
+    user = await get_user(user_id)
+    lang = user.get("language", "en") if user else "en"
+
+    from bot import load_locale
+    locale = load_locale(lang)
+
     blocked_words = await get_blocked_words()
     text = message.text or message.caption or ""
     for word in blocked_words:
         if word.lower() in text.lower():
-            await message.reply_text("Your message contains a blocked word. Please be respectful.")
+            await message.reply_text(locale.get("blocked_word", "Your message contains a blocked word. Please be respectful."))
             return
     now = time.time()
     last_time = user_rate_limit.get(user_id, 0)
     if now - last_time < 2.0:
-        await message.reply_text("Rate limit: Please wait before sending another message.")
+        await message.reply_text(locale.get("rate_limit", "Rate limit: Please wait before sending another message."))
         return
     user_rate_limit[user_id] = now
 
@@ -29,7 +35,7 @@ async def route_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_proof(update, context)
         return
 
-    # Always log message if in a room
+    # Always log/forward
     if room_id:
         await log_chat(room_id, {
             "user_id": user_id,
@@ -42,11 +48,11 @@ async def route_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         })
         room = await get_room(room_id)
         if not room or "users" not in room:
-            await message.reply_text("Chat room error. Please use /find again.")
+            await message.reply_text(locale.get("chat_error", "Chat room error. Please use /find again."))
             return
         other_id = [uid for uid in room["users"] if uid != user_id]
         if not other_id:
-            await message.reply_text("Your chat partner is not available.")
+            await message.reply_text(locale.get("partner_left", "Your chat partner is not available."))
             return
         other_id = other_id[0]
         await message.copy(chat_id=other_id)
@@ -54,7 +60,8 @@ async def route_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             from handlers.forward import forward_to_admin
             await forward_to_admin(update, context)
     else:
-        # Not in a room - still forward to admin group.
+        # Not in a room - tell user, but still forward to admin
+        await message.reply_text(locale.get("not_in_room", "You are not in a chat. Use /find or main menu to start one."))
         if ADMIN_GROUP_ID:
             from handlers.forward import forward_to_admin
             await forward_to_admin(update, context)
