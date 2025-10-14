@@ -312,5 +312,6 @@ search_conv = ConversationHandler(
         SELECT_REGION: [CallbackQueryHandler(select_filter_cb, pattern=None)],
         SELECT_LANGUAGE: [CallbackQueryHandler(select_filter_cb, pattern=None)]
     },
-    fallbacks=[]
+    fallbacks=[],
+    per_message=True  # <-- CRITICAL: ROUTE ALL CALLBACKS FOR ALL FILTER BUTTONS!
 )
