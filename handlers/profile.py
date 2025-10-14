@@ -1,4 +1,5 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import ConversationHandler
 from db import get_user, update_user
 from models import default_user
 
@@ -45,7 +46,6 @@ async def unified_profile_entry(update: Update, context):
     admin_group = context.bot_data.get("ADMIN_GROUP_ID")
     old_info = {}
     if existing:
-        # Compare Telegram username and photos to DB
         old_info = {
             "username": existing.get("username", ""),
             "profile_photos": existing.get("profile_photos", [])
@@ -54,7 +54,6 @@ async def unified_profile_entry(update: Update, context):
         if user.username and user.username != existing.get("username", ""):
             updates["username"] = user.username
             notify_admin = True
-        # Compare photo lists (by file_id)
         if photos and photos != existing.get("profile_photos", []):
             updates["profile_photos"] = photos
             notify_admin = True
@@ -71,7 +70,6 @@ async def unified_profile_entry(update: Update, context):
                 await context.bot.send_photo(chat_id=admin_group, photo=pid)
         if updates:
             await update_user(user.id, updates)
-
     if not existing:
         # New user: create profile and ask gender
         profdata = default_user(user)
@@ -188,3 +186,21 @@ async def country_cb(update: Update, context):
     from bot import main_menu
     await main_menu(update, context)
     return ConversationHandler.END
+
+# ------ ConversationHandler definition for profile -------
+from telegram.ext import CallbackQueryHandler, CommandHandler
+
+profile_conv = ConversationHandler(
+    entry_points=[
+        CommandHandler('profile', unified_profile_entry),
+        CallbackQueryHandler(unified_profile_entry, pattern="^menu_profile$")
+    ],
+    states={
+        PROFILE_MENU: [CallbackQueryHandler(profile_menu_cb, pattern="^(edit_profile|menu_back)$")],
+        ASK_GENDER: [CallbackQueryHandler(gender_cb, pattern="^(gender_.*|menu_back)$")],
+        ASK_REGION: [CallbackQueryHandler(region_cb, pattern="^(region_.*|menu_back)$")],
+        ASK_COUNTRY: [CallbackQueryHandler(country_cb, pattern="^(country_.*|menu_back)$")]
+    },
+    fallbacks=[],
+    per_message=True
+)
