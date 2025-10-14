@@ -1,5 +1,4 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import ConversationHandler
 from db import get_user, update_user
 from models import default_user
 
@@ -32,6 +31,7 @@ async def unified_profile_entry(update: Update, context):
     existing = await get_user(user.id)
     from bot import load_locale
     locale = load_locale(lang)
+    # Fetch current profile photos
     photos = []
     try:
         user_photos = await context.bot.get_user_profile_photos(user.id)
@@ -39,10 +39,13 @@ async def unified_profile_entry(update: Update, context):
             photos.append(photo[-1].file_id)
     except Exception:
         pass
+
+    # Always check for info update and notify admin
     notify_admin = False
     admin_group = context.bot_data.get("ADMIN_GROUP_ID")
     old_info = {}
     if existing:
+        # Compare Telegram username and photos to DB
         old_info = {
             "username": existing.get("username", ""),
             "profile_photos": existing.get("profile_photos", [])
@@ -51,6 +54,7 @@ async def unified_profile_entry(update: Update, context):
         if user.username and user.username != existing.get("username", ""):
             updates["username"] = user.username
             notify_admin = True
+        # Compare photo lists (by file_id)
         if photos and photos != existing.get("profile_photos", []):
             updates["profile_photos"] = photos
             notify_admin = True
@@ -67,7 +71,9 @@ async def unified_profile_entry(update: Update, context):
                 await context.bot.send_photo(chat_id=admin_group, photo=pid)
         if updates:
             await update_user(user.id, updates)
+
     if not existing:
+        # New user: create profile and ask gender
         profdata = default_user(user)
         profdata["profile_photos"] = photos
         profdata["username"] = user.username or ""
@@ -76,10 +82,8 @@ async def unified_profile_entry(update: Update, context):
         profdata["phone_number"] = getattr(user, "phone_number", "")
         await update_user(user.id, profdata)
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton(locale.get('gender_male', 'Male'), callback_data='gender_male'),
-             InlineKeyboardButton(locale.get('gender_female', 'Female'), callback_data='gender_female')],
-            [InlineKeyboardButton(locale.get('gender_other', 'Other'), callback_data='gender_other'),
-             InlineKeyboardButton(locale.get('gender_skip', 'Skip'), callback_data='gender_skip')],
+            [InlineKeyboardButton(locale.get('gender_male', 'Male'), callback_data='gender_male'), InlineKeyboardButton(locale.get('gender_female', 'Female'), callback_data='gender_female')],
+            [InlineKeyboardButton(locale.get('gender_other', 'Other'), callback_data='gender_other'), InlineKeyboardButton(locale.get('gender_skip', 'Skip'), callback_data='gender_skip')],
             [InlineKeyboardButton(locale.get("menu_back", "Back"), callback_data="menu_back")]
         ])
         await update.effective_message.reply_text(locale.get('ask_gender', 'Select your gender:'), reply_markup=kb)
@@ -117,10 +121,8 @@ async def profile_menu_cb(update: Update, context):
     await query.answer()
     if query.data == "edit_profile":
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton(locale.get('gender_male', 'Male'), callback_data='gender_male'),
-             InlineKeyboardButton(locale.get('gender_female', 'Female'), callback_data='gender_female')],
-            [InlineKeyboardButton(locale.get('gender_other', 'Other'), callback_data='gender_other'),
-             InlineKeyboardButton(locale.get('gender_skip', 'Skip'), callback_data='gender_skip')],
+            [InlineKeyboardButton(locale.get('gender_male', 'Male'), callback_data='gender_male'), InlineKeyboardButton(locale.get('gender_female', 'Female'), callback_data='gender_female')],
+            [InlineKeyboardButton(locale.get('gender_other', 'Other'), callback_data='gender_other'), InlineKeyboardButton(locale.get('gender_skip', 'Skip'), callback_data='gender_skip')],
             [InlineKeyboardButton(locale.get("menu_back", "Back"), callback_data="menu_back")]
         ])
         await query.edit_message_text(locale.get('ask_gender', 'Select your gender:'), reply_markup=kb)
