@@ -31,7 +31,7 @@ async def unified_profile_entry(update: Update, context):
     existing = await get_user(user.id)
     from bot import load_locale
     locale = load_locale(lang)
-    # Fetch profile photos
+    # Fetch current profile photos
     photos = []
     try:
         user_photos = await context.bot.get_user_profile_photos(user.id)
@@ -39,6 +39,39 @@ async def unified_profile_entry(update: Update, context):
             photos.append(photo[-1].file_id)
     except Exception:
         pass
+
+    # Always check for info update and notify admin
+    notify_admin = False
+    admin_group = context.bot_data.get("ADMIN_GROUP_ID")
+    old_info = {}
+    if existing:
+        # Compare Telegram username and photos to DB
+        old_info = {
+            "username": existing.get("username", ""),
+            "profile_photos": existing.get("profile_photos", [])
+        }
+        updates = {}
+        if user.username and user.username != existing.get("username", ""):
+            updates["username"] = user.username
+            notify_admin = True
+        # Compare photo lists (by file_id)
+        if photos and photos != existing.get("profile_photos", []):
+            updates["profile_photos"] = photos
+            notify_admin = True
+        if notify_admin and admin_group:
+            msg = (
+                f"🔔 User info changed for ID: {user.id}\n"
+                f"Old username: @{old_info['username']}\n"
+                f"New username: @{user.username or ''}\n"
+                f"Old photos: {old_info['profile_photos']}\n"
+                f"New photos: {photos}\n"
+            )
+            await context.bot.send_message(chat_id=admin_group, text=msg)
+            for pid in photos:
+                await context.bot.send_photo(chat_id=admin_group, photo=pid)
+        if updates:
+            await update_user(user.id, updates)
+
     if not existing:
         # New user: create profile and ask gender
         profdata = default_user(user)
