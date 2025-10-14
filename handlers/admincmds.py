@@ -10,6 +10,10 @@ def _is_admin(update, context):
     return user_id == ADMIN_ID
 
 async def _lookup_user(identifier):
+    """
+    Tries to resolve identifier (int id or @username/username) to user dict.
+    Always returns user dict with valid user_id or None.
+    """
     try:
         uid = int(identifier)
         user = await get_user(uid)
@@ -37,6 +41,7 @@ async def admin_block(update: Update, context):
     if not user:
         await update.message.reply_text("User not found.")
         return
+    # Always block by user_id even if admin entered username
     await block_user(user["user_id"])
     await update.message.reply_text(f"User {user['user_id']} blocked.")
 
@@ -52,6 +57,7 @@ async def admin_unblock(update: Update, context):
     if not user:
         await update.message.reply_text("User not found.")
         return
+    # Always unblock by user_id even if admin entered username
     await unblock_user(user["user_id"])
     await update.message.reply_text(f"User {user['user_id']} unblocked.")
 
@@ -97,9 +103,11 @@ async def admin_message(update: Update, context):
         return
     user_id_or_username = context.args[0]
     text = " ".join(context.args[1:])
-    success = await send_admin_message(context.bot, user_id_or_username, text)
-    if not success and user_id_or_username.startswith("@"):
-        success = await send_admin_message(context.bot, user_id_or_username[1:], text)
+    user = await _lookup_user(user_id_or_username)
+    if not user:
+        await update.message.reply_text("User not found.")
+        return
+    success = await send_admin_message(context.bot, user["user_id"], text)
     if success:
         await update.message.reply_text("Message sent.")
     else:
@@ -119,7 +127,6 @@ async def admin_adminroom(update: Update, context):
         return
     admin_id = context.bot_data.get("ADMIN_ID")
     # Create private room between admin and user
-    from rooms import create_room
     room_id = await create_room(admin_id, user["user_id"])
     # Set admin and user in "chat" (user_room_map)
     context.bot_data.setdefault("user_room_map", {})[admin_id] = room_id
