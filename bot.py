@@ -132,13 +132,13 @@ def main():
             CallbackQueryHandler(unified_profile_entry, pattern="^menu_profile$")
         ],
         states={
-            PROFILE_MENU: [CallbackQueryHandler(profile_menu_cb, pattern="^(edit_profile|menu_back)$")],
-            ASK_GENDER: [CallbackQueryHandler(gender_cb, pattern="^gender_")],
-            ASK_REGION: [CallbackQueryHandler(region_cb, pattern="^region_")],
-            ASK_COUNTRY: [CallbackQueryHandler(country_cb, pattern="^country_")]
+            PROFILE_MENU: [CallbackQueryHandler(profile_menu_cb, pattern=None)],
+            ASK_GENDER: [CallbackQueryHandler(gender_cb, pattern=None)],
+            ASK_REGION: [CallbackQueryHandler(region_cb, pattern=None)],
+            ASK_COUNTRY: [CallbackQueryHandler(country_cb, pattern=None)]
         },
         fallbacks=[],
-        per_message=True  # <-- CRITICAL: TRACK ALL CALLBACKS FOR PROFILE CONV!
+        per_message=True
     )
     app.add_handler(profile_conv)
 
@@ -153,7 +153,7 @@ def main():
     app.add_handler(CallbackQueryHandler(language_select_callback, pattern="^lang_"))
     app.add_handler(CallbackQueryHandler(menu_callback_handler, pattern="^(menu_find|menu_upgrade|menu_filter|menu_search|menu_back)$"))
 
-    app.add_handler(search_conv)  # Only ConversationHandler for filter menu logic
+    app.add_handler(search_conv)
 
     admin_filter = filters.User(ADMIN_ID)
     app.add_handler(CommandHandler("block", admin_block, admin_filter))
