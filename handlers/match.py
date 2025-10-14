@@ -153,6 +153,7 @@ async def end_command(update: Update, context):
             await context.bot.send_message(other_id, locale.get("partner_left", "Your chat partner has left the chat."))
         except Exception:
             pass
+    # FIX: Do NOT re-add the other user to the pool! They must explicitly use /find to search again.
 
 async def next_command(update: Update, context):
     await end_command(update, context)
