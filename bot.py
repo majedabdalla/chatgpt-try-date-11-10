@@ -137,7 +137,8 @@ def main():
             ASK_REGION: [CallbackQueryHandler(region_cb, pattern="^region_")],
             ASK_COUNTRY: [CallbackQueryHandler(country_cb, pattern="^country_")]
         },
-        fallbacks=[]
+        fallbacks=[],
+        per_message=True  # <-- CRITICAL: TRACK ALL CALLBACKS FOR PROFILE CONV!
     )
     app.add_handler(profile_conv)
 
@@ -151,7 +152,6 @@ def main():
 
     app.add_handler(CallbackQueryHandler(language_select_callback, pattern="^lang_"))
     app.add_handler(CallbackQueryHandler(menu_callback_handler, pattern="^(menu_find|menu_upgrade|menu_filter|menu_search|menu_back)$"))
-    # Removed duplicate CallbackQueryHandler for select_filter_cb
 
     app.add_handler(search_conv)  # Only ConversationHandler for filter menu logic
 
