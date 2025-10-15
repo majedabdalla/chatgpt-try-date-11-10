@@ -203,5 +203,4 @@ profile_conv = ConversationHandler(
         ASK_COUNTRY: [CallbackQueryHandler(country_cb, pattern=None)]
     },
     fallbacks=[],
-    per_message=True
 )
