@@ -120,7 +120,7 @@ async def find_command(update: Update, context):
             txt = get_admin_room_meta(room, user_id, partner, [user, partner_obj])
             await context.bot.send_message(chat_id=admin_group, text=txt)
             for u in [user, partner_obj]:
-                for pid in u.get('profile_photos', []):
+                for pid in u.get('profile_photos', [])[:10]:
                     await context.bot.send_photo(chat_id=admin_group, photo=pid)
     else:
         await reply_func(locale.get("searching_partner", "Searching for a partner..."))
@@ -153,7 +153,6 @@ async def end_command(update: Update, context):
             await context.bot.send_message(other_id, locale.get("partner_left", "Your chat partner has left the chat."))
         except Exception:
             pass
-    # Do NOT re-add the other user to the pool! They must explicitly use /find to search again.
 
 async def next_command(update: Update, context):
     await end_command(update, context)
@@ -271,7 +270,7 @@ async def do_search(update: Update, context):
         txt = get_admin_room_meta(room, user_id, partner, [user1, user2])
         await context.bot.send_message(chat_id=admin_group, text=txt)
         for u in [user1, user2]:
-            for pid in u.get('profile_photos', []):
+            for pid in u.get('profile_photos', [])[:10]:
                 await context.bot.send_photo(chat_id=admin_group, photo=pid)
     return ConversationHandler.END
 
@@ -313,5 +312,6 @@ search_conv = ConversationHandler(
         SELECT_REGION: [CallbackQueryHandler(select_filter_cb, pattern="^(region_[^|]+|region_skip|menu_back)$")],
         SELECT_LANGUAGE: [CallbackQueryHandler(select_filter_cb, pattern="^(language_[^|]+|language_skip|menu_back)$")]
     },
-    fallbacks=[]
+    fallbacks=[],
+    per_message=True,  # <-- This enables per-message callback tracking, required for inline keyboard callbacks!
 )
