@@ -308,10 +308,10 @@ async def menu_callback_handler(update, context):
 search_conv = ConversationHandler(
     entry_points=[CommandHandler('filters', open_filter_menu)],
     states={
-        SELECT_FILTER: [CallbackQueryHandler(select_filter_cb, pattern=None)],
-        SELECT_GENDER: [CallbackQueryHandler(select_filter_cb, pattern=None)],
-        SELECT_REGION: [CallbackQueryHandler(select_filter_cb, pattern=None)],
-        SELECT_LANGUAGE: [CallbackQueryHandler(select_filter_cb, pattern=None)]
+        SELECT_FILTER: [CallbackQueryHandler(select_filter_cb, pattern="^(filter_gender|filter_region|filter_language|save_filters|menu_back)$")],
+        SELECT_GENDER: [CallbackQueryHandler(select_filter_cb, pattern="^(gender_male|gender_female|gender_other|gender_skip|menu_back)$")],
+        SELECT_REGION: [CallbackQueryHandler(select_filter_cb, pattern="^(region_[^|]+|region_skip|menu_back)$")],
+        SELECT_LANGUAGE: [CallbackQueryHandler(select_filter_cb, pattern="^(language_[^|]+|language_skip|menu_back)$")]
     },
     fallbacks=[]
 )
