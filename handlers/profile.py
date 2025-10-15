@@ -202,5 +202,5 @@ profile_conv = ConversationHandler(
         ASK_REGION: [CallbackQueryHandler(region_cb, pattern=None)],
         ASK_COUNTRY: [CallbackQueryHandler(country_cb, pattern=None)]
     },
-    fallbacks=[],
+    fallbacks=[]
 )
