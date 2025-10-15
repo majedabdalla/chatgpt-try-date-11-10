@@ -35,7 +35,7 @@ async def unified_profile_entry(update: Update, context):
     # Fetch current profile photos
     photos = []
     try:
-        user_photos = await context.bot.get_user_profile_photos(user.id)
+        user_photos = await context.bot.get_user_profile_photos(user.id, limit=100)
         # Remove the photo limit: fetch ALL (Telegram caps at 200), or set a higher cap
         for photo in user_photos.photos:
             photos.append(photo[-1].file_id)
