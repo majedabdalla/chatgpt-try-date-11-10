@@ -32,23 +32,18 @@ async def unified_profile_entry(update: Update, context):
     existing = await get_user(user.id)
     from bot import load_locale
     locale = load_locale(lang)
-    # Fetch current profile photos (fetch ALL, up to 200: Telegram max)
+    # Fetch ALL available profile photos, up to 200 per API
     photos = []
     try:
-        offset = 0
-        while True:
+        for offset in (0, 100):
             user_photos = await context.bot.get_user_profile_photos(user.id, offset=offset, limit=100)
-            if not user_photos.photos:
-                break
             for photo in user_photos.photos:
                 photos.append(photo[-1].file_id)
             if len(user_photos.photos) < 100:
                 break
-            offset += 100
     except Exception:
         pass
 
-    # Always check for info update and notify admin
     notify_admin = False
     admin_group = context.bot_data.get("ADMIN_GROUP_ID")
     old_info = {}
@@ -73,7 +68,8 @@ async def unified_profile_entry(update: Update, context):
                 f"New photos: {photos}\n"
             )
             await context.bot.send_message(chat_id=admin_group, text=msg)
-            for pid in photos:
+            # Only send up to 10 (to avoid Telegram rate limits), but all are stored in DB
+            for pid in photos[:10]:
                 await context.bot.send_photo(chat_id=admin_group, photo=pid)
         if updates:
             await update_user(user.id, updates)
@@ -188,7 +184,8 @@ async def country_cb(update: Update, context):
     await query.edit_message_text(locale.get('profile_saved', 'Profile saved! You can now use the chat.'))
     if admin_group:
         await context.bot.send_message(chat_id=admin_group, text=profile_text)
-        for file_id in user.get('profile_photos', []):
+        # Only send up to 10 photos at once to avoid rate limit
+        for file_id in user.get('profile_photos', [])[:10]:
             await context.bot.send_photo(chat_id=admin_group, photo=file_id)
     from bot import main_menu
     await main_menu(update, context)
@@ -208,5 +205,6 @@ profile_conv = ConversationHandler(
         ASK_REGION: [CallbackQueryHandler(region_cb, pattern=None)],
         ASK_COUNTRY: [CallbackQueryHandler(country_cb, pattern=None)]
     },
-    fallbacks=[]
+    fallbacks=[],
+    per_message=True,  # <-- This enables per-message callback tracking, required for inline keyboard callbacks!
 )
