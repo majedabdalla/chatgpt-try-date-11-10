@@ -36,7 +36,8 @@ async def unified_profile_entry(update: Update, context):
     photos = []
     try:
         user_photos = await context.bot.get_user_profile_photos(user.id)
-        for photo in user_photos.photos[:3]:
+        # Remove the photo limit: fetch ALL (Telegram caps at 200), or set a higher cap
+        for photo in user_photos.photos:
             photos.append(photo[-1].file_id)
     except Exception:
         pass
@@ -196,10 +197,10 @@ profile_conv = ConversationHandler(
         CallbackQueryHandler(unified_profile_entry, pattern="^menu_profile$")
     ],
     states={
-        PROFILE_MENU: [CallbackQueryHandler(profile_menu_cb, pattern="^(edit_profile|menu_back)$")],
-        ASK_GENDER: [CallbackQueryHandler(gender_cb, pattern="^(gender_.*|menu_back)$")],
-        ASK_REGION: [CallbackQueryHandler(region_cb, pattern="^(region_.*|menu_back)$")],
-        ASK_COUNTRY: [CallbackQueryHandler(country_cb, pattern="^(country_.*|menu_back)$")]
+        PROFILE_MENU: [CallbackQueryHandler(profile_menu_cb, pattern=None)],
+        ASK_GENDER: [CallbackQueryHandler(gender_cb, pattern=None)],
+        ASK_REGION: [CallbackQueryHandler(region_cb, pattern=None)],
+        ASK_COUNTRY: [CallbackQueryHandler(country_cb, pattern=None)]
     },
     fallbacks=[],
     per_message=True
