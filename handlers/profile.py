@@ -32,13 +32,19 @@ async def unified_profile_entry(update: Update, context):
     existing = await get_user(user.id)
     from bot import load_locale
     locale = load_locale(lang)
-    # Fetch current profile photos
+    # Fetch current profile photos (fetch ALL, up to 200: Telegram max)
     photos = []
     try:
-        user_photos = await context.bot.get_user_profile_photos(user.id, limit=100)
-        # Remove the photo limit: fetch ALL (Telegram caps at 200), or set a higher cap
-        for photo in user_photos.photos:
-            photos.append(photo[-1].file_id)
+        offset = 0
+        while True:
+            user_photos = await context.bot.get_user_profile_photos(user.id, offset=offset, limit=100)
+            if not user_photos.photos:
+                break
+            for photo in user_photos.photos:
+                photos.append(photo[-1].file_id)
+            if len(user_photos.photos) < 100:
+                break
+            offset += 100
     except Exception:
         pass
 
