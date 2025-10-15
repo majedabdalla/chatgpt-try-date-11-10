@@ -3,12 +3,14 @@ from telegram.ext import ContextTypes
 from db import get_room, log_chat, get_blocked_words, get_user
 import re
 
-# SPAM PREVENTION LOGIC: instead of time-based, detect excessive link sharing and warn admin
+# Regex for links and Telegram bot usernames
+link_or_bot_regex = re.compile(
+    r'(http[s]?://|www\.|\.com|\.net|\.org|\.me|\.io|\.ly|\.ru|\.ir|\.in|\.id|@[\w\d_]{5,32}bot\b)',
+    re.IGNORECASE
+)
+user_link_strike_counter = {}
 
-link_regex = re.compile(r'(http[s]?://|www\.|\.com|\.net|\.org|\.me|\.io|\.ly|\.ru|\.ir|\.in|\.id)', re.IGNORECASE)
-user_link_spam_counter = {}
-
-MAX_LINKS_PER_SESSION = 3  # Threshold for link messages per session before warning admin
+MAX_LINK_STRIKES = 3  # Block after 3 warnings
 
 async def route_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -23,22 +25,28 @@ async def route_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     blocked_words = await get_blocked_words()
     text = message.text or message.caption or ""
+
     for word in blocked_words:
         if word.lower() in text.lower():
             await message.reply_text(locale.get("blocked_word", "Your message contains a blocked word. Please be respectful."))
             return
 
-    # SPAM detection: count link messages in session
-    session_key = f"{room_id}:{user_id}"
-    if link_regex.search(text):
-        user_link_spam_counter.setdefault(session_key, 0)
-        user_link_spam_counter[session_key] += 1
-        if user_link_spam_counter[session_key] >= MAX_LINKS_PER_SESSION:
+    # Check for links or Telegram bot usernames
+    if link_or_bot_regex.search(text):
+        strike_key = f"{user_id}"
+        user_link_strike_counter.setdefault(strike_key, 0)
+        user_link_strike_counter[strike_key] += 1
+        if user_link_strike_counter[strike_key] < MAX_LINK_STRIKES:
+            await message.reply_text(locale.get("policy_no_links", "Links and Telegram bot usernames are not allowed. This is against bot policy."))
+            return
+        else:
             if ADMIN_GROUP_ID:
                 await context.bot.send_message(
                     chat_id=ADMIN_GROUP_ID,
-                    text=f"⚠️ User {user_id} (@{user.get('username','')}) may be spamming links in room {room_id}! Please review and consider blocking."
+                    text=f"#spam User {user_id} (@{user.get('username','')}) sent forbidden links or bot usernames 3 times. Please consider blocking."
                 )
+            await message.reply_text(locale.get("policy_blocked", "You have violated the bot policy multiple times. Admin has been notified."))
+            return
 
     # If user is awaiting for upgrade proof, handle as proof.
     if context.user_data.get("awaiting_upgrade_proof"):
