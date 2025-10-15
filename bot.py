@@ -137,8 +137,7 @@ def main():
             ASK_REGION: [CallbackQueryHandler(region_cb, pattern=None)],
             ASK_COUNTRY: [CallbackQueryHandler(country_cb, pattern=None)]
         },
-        fallbacks=[],
-        per_message=True
+        fallbacks=[]
     )
     app.add_handler(profile_conv)
 
