@@ -141,6 +141,9 @@ def main():
     )
     app.add_handler(profile_conv)
 
+    # Register search_conv BEFORE generic CallbackQueryHandlers (this is the fix)
+    app.add_handler(search_conv)
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("find", find_command))
     app.add_handler(CommandHandler("end", end_command))
@@ -151,8 +154,6 @@ def main():
 
     app.add_handler(CallbackQueryHandler(language_select_callback, pattern="^lang_"))
     app.add_handler(CallbackQueryHandler(menu_callback_handler, pattern="^(menu_find|menu_upgrade|menu_filter|menu_search|menu_back)$"))
-
-    app.add_handler(search_conv)
 
     admin_filter = filters.User(ADMIN_ID)
     app.add_handler(CommandHandler("block", admin_block, admin_filter))
