@@ -27,11 +27,9 @@ from admin import downgrade_expired_premium
 from handlers.message_router import route_message
 
 load_dotenv()
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN not set in environment variables")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
-ADMIN_GROUP_ID = int(os.getenv("ADMIN_GROUP_ID", "0"))
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = int(os.getenv("ADMIN_ID"))
+ADMIN_GROUP_ID = int(os.getenv("ADMIN_GROUP_ID"))
 LOCALE_DIR = os.path.join(os.path.dirname(__file__), "locales")
 
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -108,8 +106,6 @@ async def language_select_callback(update: Update, context):
 
 def is_true_admin(update: Update):
     user_id = update.effective_user.id
-    logger.info(f"Your user ID: {user_id}")
-    logger.info(f"ADMIN_ID from env: {ADMIN_ID}")
     return user_id == ADMIN_ID
 
 async def main_menu(update: Update, context):
@@ -124,13 +120,6 @@ async def main_menu(update: Update, context):
         ("search", "menu_search")
     ], lang)
     await update.effective_message.reply_text(locale.get("main_menu", "Main Menu:"), reply_markup=kb)
-
-async def keep_alive_ping(context):
-    """Ping bot every 14 minutes to prevent sleep"""
-    try:
-        await context.bot.get_me()
-    except Exception as e:
-        logging.error(f"Keep-alive ping failed: {e}")
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
@@ -148,12 +137,11 @@ def main():
             ASK_REGION: [CallbackQueryHandler(region_cb, pattern=None)],
             ASK_COUNTRY: [CallbackQueryHandler(country_cb, pattern=None)]
         },
-        fallbacks=[],
-        per_message=True
+        fallbacks=[]
     )
     app.add_handler(profile_conv)
 
-    # ⚡️ Handler order: search_conv must be registered BEFORE generic CallbackQueryHandlers
+    # Register search_conv BEFORE generic CallbackQueryHandlers (this is the fix)
     app.add_handler(search_conv)
 
     app.add_handler(CommandHandler("start", start))
@@ -189,9 +177,6 @@ def main():
     async def expiry_job(context):
         await downgrade_expired_premium()
     app.job_queue.run_repeating(expiry_job, interval=3600, first=10)
-
-    # Keep-alive ping for free hosting
-    app.job_queue.run_repeating(keep_alive_ping, interval=14*60, first=10)
 
     logger.info("AnonindoChat Bot started (polling).")
     app.run_polling()
