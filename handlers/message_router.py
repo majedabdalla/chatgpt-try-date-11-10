@@ -74,12 +74,16 @@ async def route_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await message.reply_text(locale.get("partner_left", "Your chat partner is not available."))
             return
         other_id = other_id[0]
-        await message.copy(chat_id=other_id)
+        try:
+            await message.copy(chat_id=other_id)
+        except Exception as e:
+            await message.reply_text("Your partner has left the chat.")
+            context.bot_data["user_room_map"].pop(user_id, None)
+            return
         if ADMIN_GROUP_ID:
             from handlers.forward import forward_to_admin
             await forward_to_admin(update, context)
     else:
-        # Not in a room - tell user, but still forward to admin
         await message.reply_text(locale.get("not_in_room", "You are not in a chat. Use /find or main menu to start one."))
         if ADMIN_GROUP_ID:
             from handlers.forward import forward_to_admin
