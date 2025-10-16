@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 async def approve_premium(user_id, duration_days=90):
     expiry = (datetime.utcnow() + timedelta(days=duration_days)).isoformat()
     await update_user(user_id, {"is_premium": True, "premium_expiry": expiry})
-    return expiry
+    return expiry  # Ensure this is returned
 
 async def downgrade_expired_premium():
     now = datetime.utcnow().isoformat()
