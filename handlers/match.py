@@ -1,7 +1,7 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ConversationHandler, CallbackQueryHandler, CommandHandler
 from db import get_user, get_room, delete_room, update_user
-from rooms import add_to_pool, remove_from_pool, users_online, create_room, close_room, find_match_for  # PATCHED: import find_match_for
+from rooms import add_to_pool, remove_from_pool, users_online, create_room, close_room
 import random
 
 SELECT_FILTER, SELECT_GENDER, SELECT_REGION, SELECT_LANGUAGE = range(4)
@@ -30,25 +30,26 @@ def get_filter_menu(lang, context, filters):
             return label
         return locale.get(key, key)
     selected = filters or {}
-
+    
+    # Better visual indicators for selected filters
     gender_display = selected.get('gender', '❌')
     if gender_display != '❌':
         gender_display = f"✅ {get_label('gender', gender_display)}"
     else:
         gender_display = locale.get('gender_skip', 'Any')
-
+    
     region_display = selected.get('region', '❌')
     if region_display != '❌':
         region_display = f"✅ {region_display}"
     else:
         region_display = locale.get('gender_skip', 'Any')
-
+    
     language_display = selected.get('language', '❌')
     if language_display != '❌':
         language_display = f"✅ {get_label('language', language_display)}"
     else:
         language_display = locale.get('gender_skip', 'Any')
-
+    
     rows = [
         [InlineKeyboardButton(
             f"👤 {locale.get('gender', 'Gender')}: {gender_display}",
@@ -73,7 +74,7 @@ async def open_filter_menu(update: Update, context):
     lang = get_user_locale(user)
     from bot import load_locale
     locale = load_locale(lang)
-
+    
     if not user or not user.get("is_premium", False):
         if hasattr(update, 'callback_query') and update.callback_query:
             await update.callback_query.answer(locale.get("premium_only", "This feature is for premium users only."), show_alert=True)
@@ -81,12 +82,12 @@ async def open_filter_menu(update: Update, context):
         else:
             await update.effective_message.reply_text(locale.get("premium_only", "This feature is for premium users only."))
         return ConversationHandler.END
-
+    
     context.user_data["search_filters"] = dict(user.get("matching_preferences", {}))
-
+    
     filter_text = f"🔍 {locale.get('select_filters', 'Set your filters below:')}\n\n"
     filter_text += f"ℹ️ {locale.get('filter_info', 'Click on each option to change it, then Save.')}"
-
+    
     if hasattr(update, 'callback_query') and update.callback_query:
         await update.callback_query.answer()
         await update.callback_query.edit_message_text(
@@ -139,10 +140,10 @@ async def find_command(update: Update, context):
     if user_id in context.bot_data.get("user_room_map", {}):
         await reply_func(locale.get("already_in_room", "You are already in a chat. Use /end or /next to leave first."))
         return
-
+    
     # Show searching animation
     await reply_func(f"🔍 {locale.get('searching_partner', 'Searching for a partner...')}")
-
+    
     candidates = [uid for uid in users_online if uid != user_id]
     if candidates:
         partner = random.choice(candidates)
@@ -162,8 +163,8 @@ async def find_command(update: Update, context):
                 for pid in u.get('profile_photos', [])[:10]:
                     await context.bot.send_photo(chat_id=admin_group, photo=pid)
     else:
-        add_to_pool(user_id)  # PATCHED: ensure this line is here
-        await reply_func(locale.get('pool_wait', 'You have been added to the finding pool! Wait for a match.'))
+        add_to_pool(user_id)
+        await reply_func(f"⏳ {locale.get('pool_wait', 'You have been added to the finding pool! Wait for a match.')}")
 
 async def end_command(update: Update, context):
     user_id = update.effective_user.id
@@ -206,10 +207,10 @@ async def select_filter_cb(update: Update, context):
     filters = context.user_data.get("search_filters", {})
     await query.answer()
     data = query.data
-
+    
     if data == "filter_gender":
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton(f"👨 {locale.get('gender_male', 'Male')}", callback_data="gender_male"),
+            [InlineKeyboardButton(f"👨 {locale.get('gender_male', 'Male')}", callback_data="gender_male"), 
              InlineKeyboardButton(f"👩 {locale.get('gender_female', 'Female')}", callback_data="gender_female")],
             [InlineKeyboardButton(f"⚧ {locale.get('gender_other', 'Other')}", callback_data="gender_other")],
             [InlineKeyboardButton(f"❌ {locale.get('gender_skip', 'Any')}", callback_data="gender_skip")],
@@ -217,7 +218,7 @@ async def select_filter_cb(update: Update, context):
         ])
         await query.edit_message_text(f"👤 {locale.get('ask_gender', 'Select preferred gender:')}", reply_markup=kb)
         return SELECT_GENDER
-
+    
     if data == "filter_region":
         kb = InlineKeyboardMarkup(
             [[InlineKeyboardButton(f"🌍 {r}", callback_data=f"region_{r}")] for r in REGIONS] +
@@ -226,7 +227,7 @@ async def select_filter_cb(update: Update, context):
         )
         await query.edit_message_text(f"🌍 {locale.get('ask_region', 'Select preferred region:')}", reply_markup=kb)
         return SELECT_REGION
-
+    
     if data == "filter_language":
         lang_labels = {'en': '🇬🇧 English', 'ar': '🇸🇦 العربية', 'hi': '🇮🇳 हिंदी', 'id': '🇮🇩 Indonesia'}
         kb = InlineKeyboardMarkup(
@@ -251,7 +252,7 @@ async def select_filter_cb(update: Update, context):
             reply_markup=get_filter_menu(lang, context, filters)
         )
         return SELECT_FILTER
-
+    
     if data.startswith("region_"):
         val = data.split("_", 1)[1]
         if val != "skip":
@@ -266,7 +267,7 @@ async def select_filter_cb(update: Update, context):
             reply_markup=get_filter_menu(lang, context, filters)
         )
         return SELECT_FILTER
-
+    
     if data.startswith("language_"):
         val = data.split("_", 1)[1]
         if val != "skip":
@@ -302,16 +303,16 @@ async def do_search(update: Update, context):
     lang = get_user_locale(user)
     from bot import load_locale
     locale = load_locale(lang)
-
+    
     if user_id in context.bot_data.get("user_room_map", {}):
         await query.answer(locale.get("already_in_room", "You are already in a chat!"), show_alert=True)
         return ConversationHandler.END
-
+    
     filters = dict(user.get("matching_preferences", {}))
-
+    
     await query.answer()
     await query.edit_message_text(f"🔍 {locale.get('searching_partner', 'Searching for a partner with your filters...')}")
-
+    
     candidates = []
     for uid in users_online:
         if uid == user_id:
@@ -326,11 +327,11 @@ async def do_search(update: Update, context):
                 break
         if ok:
             candidates.append(uid)
-
+    
     if not candidates:
         await query.edit_message_text(f"😔 {locale.get('no_partner_found', 'No users found matching your criteria. Try again later.')}")
         return ConversationHandler.END
-
+    
     partner = random.choice(candidates)
     users_online.discard(user_id)
     users_online.discard(partner)
@@ -359,13 +360,14 @@ async def menu_callback_handler(update, context):
     locale = load_locale(lang)
     await query.answer()
     data = query.data
-
+    
     if data == "menu_find":
         await find_command(update, context)
     elif data == "menu_upgrade":
         context.user_data["awaiting_upgrade_proof"] = True
         await query.edit_message_text(f"💳 {locale.get('upgrade_tip', 'Please upload payment proof (photo, screenshot, or document)')}")
     elif data == "menu_filter":
+        # This now properly enters the ConversationHandler
         return await open_filter_menu(update, context)
     elif data == "menu_search":
         if not user or not user.get("is_premium", False):
@@ -379,11 +381,11 @@ async def menu_callback_handler(update, context):
     else:
         await query.edit_message_text(locale.get("unknown_option", "Unknown menu option."))
 
-# PATCHED: Handler order and entry points
+# FIXED ConversationHandler with proper entry points
 search_conv = ConversationHandler(
     entry_points=[
         CommandHandler('filters', open_filter_menu),
-        CallbackQueryHandler(open_filter_menu, pattern="^menu_filter$"),  # MUST be here!
+        CallbackQueryHandler(open_filter_menu, pattern="^menu_filter$"),  # <-- THIS IS THE KEY FIX!
     ],
     states={
         SELECT_FILTER: [CallbackQueryHandler(select_filter_cb, pattern="^(filter_gender|filter_region|filter_language|save_filters|menu_back)$")],
