@@ -1,7 +1,7 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ConversationHandler, CallbackQueryHandler, CommandHandler
 from db import get_user, get_room, delete_room, update_user
-from rooms import add_to_pool, remove_from_pool, users_online, create_room, close_room
+from rooms import add_to_pool, remove_from_pool, users_online, create_room, close_room, find_match_for  # PATCHED: import find_match_for
 import random
 
 SELECT_FILTER, SELECT_GENDER, SELECT_REGION, SELECT_LANGUAGE = range(4)
