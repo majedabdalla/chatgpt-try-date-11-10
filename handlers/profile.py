@@ -23,7 +23,7 @@ def make_profile_kb(lang):
     locale = load_locale(lang)
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(locale.get("edit_profile", "Edit"), callback_data="edit_profile")],
-        [InlineKeyboardButton(locale.get("menu_back", "Back"), callback_data="menu_back")]
+        #[InlineKeyboardButton(locale.get("menu_back", "Back"), callback_data="menu_back")]
     ])
 
 async def unified_profile_entry(update: Update, context):
@@ -85,7 +85,7 @@ async def unified_profile_entry(update: Update, context):
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton(locale.get('gender_male', 'Male'), callback_data='gender_male'), InlineKeyboardButton(locale.get('gender_female', 'Female'), callback_data='gender_female')],
             [InlineKeyboardButton(locale.get('gender_other', 'Other'), callback_data='gender_other'), InlineKeyboardButton(locale.get('gender_skip', 'Skip'), callback_data='gender_skip')],
-            [InlineKeyboardButton(locale.get("menu_back", "Back"), callback_data="menu_back")]
+           # [InlineKeyboardButton(locale.get("menu_back", "Back"), callback_data="menu_back")]
         ])
         await update.effective_message.reply_text(locale.get('ask_gender', 'Select your gender:'), reply_markup=kb)
         return ASK_GENDER
@@ -124,7 +124,7 @@ async def profile_menu_cb(update: Update, context):
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton(locale.get('gender_male', 'Male'), callback_data='gender_male'), InlineKeyboardButton(locale.get('gender_female', 'Female'), callback_data='gender_female')],
             [InlineKeyboardButton(locale.get('gender_other', 'Other'), callback_data='gender_other'), InlineKeyboardButton(locale.get('gender_skip', 'Skip'), callback_data='gender_skip')],
-            [InlineKeyboardButton(locale.get("menu_back", "Back"), callback_data="menu_back")]
+           # [InlineKeyboardButton(locale.get("menu_back", "Back"), callback_data="menu_back")]
         ])
         await query.edit_message_text(locale.get('ask_gender', 'Select your gender:'), reply_markup=kb)
         return ASK_GENDER
@@ -145,7 +145,7 @@ async def gender_cb(update: Update, context):
         await update_user(query.from_user.id, {"gender": gender})
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton(region, callback_data=f"region_{region}")] for region in REGIONS
-    ] + [[InlineKeyboardButton(locale.get("menu_back", "Back"), callback_data="menu_back")]])
+    ] #+ [[InlineKeyboardButton(locale.get("menu_back", "Back"), callback_data="menu_back")]])
     await query.edit_message_text(locale.get('ask_region', 'Now select your region:'), reply_markup=kb)
     return ASK_REGION
 
@@ -160,7 +160,7 @@ async def region_cb(update: Update, context):
     await update_user(query.from_user.id, {"region": region})
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton(country, callback_data=f"country_{country}")] for country in COUNTRIES
-    ] + [[InlineKeyboardButton(locale.get("menu_back", "Back"), callback_data="menu_back")]])
+    ]# + [[InlineKeyboardButton(locale.get("menu_back", "Back"), callback_data="menu_back")]])
     await query.edit_message_text(locale.get('ask_country', 'Now select your country:'), reply_markup=kb)
     return ASK_COUNTRY
 
