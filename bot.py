@@ -85,6 +85,7 @@ async def start(update: Update, context):
         load_locale("en")["welcome"],
         reply_markup=kb
     )
+    context.user_data.pop("last_menu_message_id", None)
 
 async def language_select_callback(update: Update, context):
     query = update.callback_query
@@ -99,27 +100,56 @@ async def language_select_callback(update: Update, context):
         ("filters", "menu_filter"),
         ("search", "menu_search")
     ], lang)
-    await query.edit_message_text(locale.get("main_menu", "Main Menu:"), reply_markup=kb)
+    # Menu logic: always edit previous if possible
+    await show_main_menu(update, context, locale.get("main_menu", "Main Menu:"), kb)
     user = await get_user(query.from_user.id)
     if not user:
         await unified_profile_entry(update, context)
+
+async def show_main_menu(update, context, menu_text=None, reply_markup=None):
+    """Unified main menu display/edit; only one menu at a time."""
+    message_id = context.user_data.get("last_menu_message_id")
+    chat_id = update.effective_chat.id
+    if not menu_text:
+        user = await get_user(update.effective_user.id)
+        lang = get_user_locale(user)
+        locale = load_locale(lang)
+        menu_text = locale.get("main_menu", "Main Menu:")
+        reply_markup = make_inline_kb([
+            ("profile", "menu_profile"),
+            ("find", "menu_find"),
+            ("upgrade_tip", "menu_upgrade"),
+            ("filters", "menu_filter"),
+            ("search", "menu_search")
+        ], lang)
+    try:
+        if message_id:
+            # Try to edit the previous menu message
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=menu_text,
+                reply_markup=reply_markup
+            )
+        else:
+            # Send a new menu message and track its ID
+            sent = await update.effective_message.reply_text(menu_text, reply_markup=reply_markup)
+            context.user_data["last_menu_message_id"] = sent.message_id
+            return
+    except Exception:
+        # Fallback: Send a new menu message and update tracking
+        sent = await update.effective_message.reply_text(menu_text, reply_markup=reply_markup)
+        context.user_data["last_menu_message_id"] = sent.message_id
+        return
+    # If edited, re-save message_id in case the menu moved (e.g. after language, profile, etc.)
+    context.user_data["last_menu_message_id"] = message_id
 
 def is_true_admin(update: Update):
     user_id = update.effective_user.id
     return user_id == ADMIN_ID
 
 async def main_menu(update: Update, context):
-    user = await get_user(update.effective_user.id)
-    lang = get_user_locale(user)
-    locale = load_locale(lang)
-    kb = make_inline_kb([
-        ("profile", "menu_profile"),
-        ("find", "menu_find"),
-        ("upgrade_tip", "menu_upgrade"),
-        ("filters", "menu_filter"),
-        ("search", "menu_search")
-    ], lang)
-    await update.effective_message.reply_text(locale.get("main_menu", "Main Menu:"), reply_markup=kb)
+    await show_main_menu(update, context)
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
@@ -141,7 +171,6 @@ def main():
     )
     app.add_handler(profile_conv)
 
-    # Register search_conv BEFORE generic CallbackQueryHandlers (this is the fix)
     app.add_handler(search_conv)
 
     app.add_handler(CommandHandler("start", start))
