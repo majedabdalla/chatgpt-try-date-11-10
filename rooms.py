@@ -15,6 +15,8 @@ async def create_room(user1: int, user2: int):
 
 async def close_room(room_id: str):
     await update_room(room_id, {"active": False})
+    # Delete all chat logs for this room when closing the room
+    await db.chatlogs.delete_many({"room_id": room_id})
 
 async def find_match_for(user_id: int, prefer_filters=None):
     # Prefer filters: gender, region, country, premium_only
