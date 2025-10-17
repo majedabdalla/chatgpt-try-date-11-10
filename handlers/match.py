@@ -63,8 +63,8 @@ def get_filter_menu(lang, context, filters):
             f"💬 {locale.get('language', 'Language')}: {language_display}",
             callback_data="filter_language"
         )],
-        [InlineKeyboardButton(f"💾 {locale.get('save_filters', 'Save Filters')}", callback_data="save_filters")],
-       #  [InlineKeyboardButton(f"🔙 {locale.get('menu_back', 'Back')}", callback_data="menu_back")]
+        [InlineKeyboardButton(f"💾 {locale.get('save_filters', 'Save Filters')}", callback_data="save_filters")]
+        # REMOVED "Back" button from main filter menu
     ]
     return InlineKeyboardMarkup(rows)
 
@@ -214,8 +214,8 @@ async def select_filter_cb(update: Update, context):
              InlineKeyboardButton(f"👩 {locale.get('gender_female', 'Female')}", callback_data="gender_female")],
             [InlineKeyboardButton(f"⚧ {locale.get('gender_other', 'Other')}", callback_data="gender_other")],
             [InlineKeyboardButton(f"❌ {locale.get('gender_skip', 'Any')}", callback_data="gender_skip")],
-           #  [InlineKeyboardButton(f"🔙 {locale.get('menu_back', 'Back')}", callback_data="menu_back")]
-        ])
+            [InlineKeyboardButton(f"💾 {locale.get('save_filters', 'Save & Back')}", callback_data="save_filters")]
+        ])  # REPLACED "Back" with "Save & Back"
         await query.edit_message_text(f"👤 {locale.get('ask_gender', 'Select preferred gender:')}", reply_markup=kb)
         return SELECT_GENDER
     
@@ -223,8 +223,8 @@ async def select_filter_cb(update: Update, context):
         kb = InlineKeyboardMarkup(
             [[InlineKeyboardButton(f"🌍 {r}", callback_data=f"region_{r}")] for r in REGIONS] +
             [[InlineKeyboardButton(f"❌ {locale.get('gender_skip', 'Any')}", callback_data="region_skip")],
-            #  [InlineKeyboardButton(f"🔙 {locale.get('menu_back', 'Back')}", callback_data="menu_back")]]
-        )
+             [InlineKeyboardButton(f"💾 {locale.get('save_filters', 'Save & Back')}", callback_data="save_filters")]]
+        )  # REPLACED "Back" with "Save & Back"
         await query.edit_message_text(f"🌍 {locale.get('ask_region', 'Select preferred region:')}", reply_markup=kb)
         return SELECT_REGION
     
@@ -233,8 +233,8 @@ async def select_filter_cb(update: Update, context):
         kb = InlineKeyboardMarkup(
             [[InlineKeyboardButton(lang_labels.get(l, l.upper()), callback_data=f"language_{l}")] for l in LANGUAGES] +
             [[InlineKeyboardButton(f"❌ {locale.get('gender_skip', 'Any')}", callback_data="language_skip")],
-            #  [InlineKeyboardButton(f"🔙 {locale.get('menu_back', 'Back')}", callback_data="menu_back")]]
-        )
+             [InlineKeyboardButton(f"💾 {locale.get('save_filters', 'Save & Back')}", callback_data="save_filters")]]
+        )  # REPLACED "Back" with "Save & Back"
         await query.edit_message_text(f"💬 {locale.get('ask_language', 'Select preferred language:')}", reply_markup=kb)
         return SELECT_LANGUAGE
 
@@ -389,9 +389,9 @@ search_conv = ConversationHandler(
     ],
     states={
         SELECT_FILTER: [CallbackQueryHandler(select_filter_cb, pattern="^(filter_gender|filter_region|filter_language|save_filters|menu_back)$")],
-        SELECT_GENDER: [CallbackQueryHandler(select_filter_cb, pattern="^(gender_male|gender_female|gender_other|gender_skip|menu_back)$")],
-        SELECT_REGION: [CallbackQueryHandler(select_filter_cb, pattern="^(region_[^|]+|region_skip|menu_back)$")],
-        SELECT_LANGUAGE: [CallbackQueryHandler(select_filter_cb, pattern="^(language_[^|]+|language_skip|menu_back)$")]
+        SELECT_GENDER: [CallbackQueryHandler(select_filter_cb, pattern="^(gender_male|gender_female|gender_other|gender_skip|menu_back|save_filters)$")],
+        SELECT_REGION: [CallbackQueryHandler(select_filter_cb, pattern="^(region_[^|]+|region_skip|menu_back|save_filters)$")],
+        SELECT_LANGUAGE: [CallbackQueryHandler(select_filter_cb, pattern="^(language_[^|]+|language_skip|menu_back|save_filters)$")]
     },
     fallbacks=[],
     per_message=True,
