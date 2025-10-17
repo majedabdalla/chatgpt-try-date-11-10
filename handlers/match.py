@@ -64,7 +64,7 @@ def get_filter_menu(lang, context, filters):
             callback_data="filter_language"
         )],
         [InlineKeyboardButton(f"💾 {locale.get('save_filters', 'Save Filters')}", callback_data="save_filters")],
-        [InlineKeyboardButton(f"🔙 {locale.get('menu_back', 'Back')}", callback_data="menu_back")]
+       #  [InlineKeyboardButton(f"🔙 {locale.get('menu_back', 'Back')}", callback_data="menu_back")]
     ]
     return InlineKeyboardMarkup(rows)
 
@@ -214,7 +214,7 @@ async def select_filter_cb(update: Update, context):
              InlineKeyboardButton(f"👩 {locale.get('gender_female', 'Female')}", callback_data="gender_female")],
             [InlineKeyboardButton(f"⚧ {locale.get('gender_other', 'Other')}", callback_data="gender_other")],
             [InlineKeyboardButton(f"❌ {locale.get('gender_skip', 'Any')}", callback_data="gender_skip")],
-            [InlineKeyboardButton(f"🔙 {locale.get('menu_back', 'Back')}", callback_data="menu_back")]
+           #  [InlineKeyboardButton(f"🔙 {locale.get('menu_back', 'Back')}", callback_data="menu_back")]
         ])
         await query.edit_message_text(f"👤 {locale.get('ask_gender', 'Select preferred gender:')}", reply_markup=kb)
         return SELECT_GENDER
@@ -223,7 +223,7 @@ async def select_filter_cb(update: Update, context):
         kb = InlineKeyboardMarkup(
             [[InlineKeyboardButton(f"🌍 {r}", callback_data=f"region_{r}")] for r in REGIONS] +
             [[InlineKeyboardButton(f"❌ {locale.get('gender_skip', 'Any')}", callback_data="region_skip")],
-             [InlineKeyboardButton(f"🔙 {locale.get('menu_back', 'Back')}", callback_data="menu_back")]]
+            #  [InlineKeyboardButton(f"🔙 {locale.get('menu_back', 'Back')}", callback_data="menu_back")]]
         )
         await query.edit_message_text(f"🌍 {locale.get('ask_region', 'Select preferred region:')}", reply_markup=kb)
         return SELECT_REGION
@@ -233,7 +233,7 @@ async def select_filter_cb(update: Update, context):
         kb = InlineKeyboardMarkup(
             [[InlineKeyboardButton(lang_labels.get(l, l.upper()), callback_data=f"language_{l}")] for l in LANGUAGES] +
             [[InlineKeyboardButton(f"❌ {locale.get('gender_skip', 'Any')}", callback_data="language_skip")],
-             [InlineKeyboardButton(f"🔙 {locale.get('menu_back', 'Back')}", callback_data="menu_back")]]
+            #  [InlineKeyboardButton(f"🔙 {locale.get('menu_back', 'Back')}", callback_data="menu_back")]]
         )
         await query.edit_message_text(f"💬 {locale.get('ask_language', 'Select preferred language:')}", reply_markup=kb)
         return SELECT_LANGUAGE
