@@ -33,7 +33,7 @@
     "blocked_word": "🚫 Mohon hindari kata-kata yang tidak pantas. Mari kita jaga komunitas tetap ramah.",
     "rate_limit": "⏳ Mohon tunggu sebentar sebelum mengirim pesan lagi.",
     "chat_error": "⚠️ Terjadi kesalahan pada ruang chat. Silakan gunakan /find lagi.",
-    "upgrade_tip": "💳 Silakan unggah bukti pembayaran (foto, screenshot, atau dokumen)",
+    "upgrade_tip": "💳 Untuk upgrade ke premium:\n\n1. Kirim pembayaran ke: PAYPAL: your-paypal@example.com\n2. Unggah bukti pembayaran (foto, tangkapan layar, atau dokumen) di sini.\n3. Tim kami akan meninjau dan mengaktifkan keanggotaan Anda secepatnya.\n\nTerima kasih telah mendukung MeetMate!",
     "proof_sent": "📝 Bukti telah dikirim untuk ditinjau. Tim kami akan segera menghubungi Anda.",
     "premium_only": "⭐️ Fitur ini hanya untuk pengguna premium. Upgrade untuk akses penuh!",
     "premium_until": "⭐️ Anda premium hingga {expiry}",
