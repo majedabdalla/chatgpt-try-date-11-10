@@ -101,18 +101,34 @@ async def open_filter_menu(update: Update, context):
         )
     return SELECT_FILTER
 
+# FIX: Also set context.user_data["room_id"] for both users, for /report and other per-user handlers
 async def set_users_room_map(context, user1, user2, room_id):
     if "user_room_map" not in context.bot_data:
         context.bot_data["user_room_map"] = {}
     context.bot_data["user_room_map"][user1] = room_id
     context.bot_data["user_room_map"][user2] = room_id
+    # Set in per-user data for /report and similar features
+    # PTB >= 20: context.application.user_data[user_id]["room_id"]
+    # Fallback if context.application not available: use context.user_data only for current user
+    # Set for both users if possible
+    if hasattr(context, "application"):
+        context.application.user_data[user1]["room_id"] = room_id
+        context.application.user_data[user2]["room_id"] = room_id
+    # Also set for current user, for compatibility
+    context.user_data["room_id"] = room_id
 
+# Remove room_id from user_data for both users
 async def remove_users_room_map(context, user1, user2=None):
     if "user_room_map" not in context.bot_data:
         return
     context.bot_data["user_room_map"].pop(user1, None)
+    if hasattr(context, "application"):
+        context.application.user_data[user1].pop("room_id", None)
+    context.user_data.pop("room_id", None)
     if user2 is not None:
         context.bot_data["user_room_map"].pop(user2, None)
+        if hasattr(context, "application"):
+            context.application.user_data[user2].pop("room_id", None)
 
 def get_admin_room_meta(room, user1, user2, users_data):
     def meta(u):
@@ -182,7 +198,12 @@ async def end_command(update: Update, context):
     if room and "users" in room:
         for uid in room["users"]:
             context.bot_data["user_room_map"].pop(uid, None)
-            if uid != user_id:
+            # Remove room_id from user_data (per-user) for both users
+            if hasattr(context, "application"):
+                context.application.user_data[uid].pop("room_id", None)
+            if uid == user_id:
+                context.user_data.pop("room_id", None)
+            else:
                 other_id = uid
     await close_room(room_id)
     await delete_room(room_id)
