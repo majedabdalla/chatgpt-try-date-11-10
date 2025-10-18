@@ -80,25 +80,26 @@ async def open_filter_menu(update: Update, context):
             await update.callback_query.answer(locale.get("premium_only", "This feature is for premium users only."), show_alert=True)
             await update.callback_query.edit_message_text(locale.get("premium_only", "This feature is for premium users only."))
         else:
-            await update.effective_message.reply_text(locale.get("premium_only", "This feature is for premium users only."))
+            sent = await update.effective_message.reply_text(locale.get("premium_only", "This feature is for premium users only."))
+            context.user_data["last_menu_message_id"] = sent.message_id
         return ConversationHandler.END
     
     context.user_data["search_filters"] = dict(user.get("matching_preferences", {}))
-    
     filter_text = f"🔍 {locale.get('select_filters', 'Set your filters below:')}\n\n"
     filter_text += f"ℹ️ {locale.get('filter_info', 'Click on each option to change it, then Save.')}"
-    
     if hasattr(update, 'callback_query') and update.callback_query:
         await update.callback_query.answer()
         await update.callback_query.edit_message_text(
             filter_text,
             reply_markup=get_filter_menu(lang, context, context.user_data["search_filters"])
         )
+        context.user_data["last_menu_message_id"] = update.callback_query.message.message_id
     else:
-        await update.effective_message.reply_text(
+        sent = await update.effective_message.reply_text(
             filter_text,
             reply_markup=get_filter_menu(lang, context, context.user_data["search_filters"])
         )
+        context.user_data["last_menu_message_id"] = sent.message_id
     return SELECT_FILTER
 
 async def set_users_room_map(context, user1, user2, room_id):
@@ -129,21 +130,22 @@ async def find_command(update: Update, context):
     user_id = update.effective_user.id
     user = await get_user(user_id)
     lang = get_user_locale(user)
-    from bot import load_locale
+    from bot import load_locale, show_main_menu
     locale = load_locale(lang)
     reply_func = update.message.reply_text if getattr(update, "message", None) else (
         update.callback_query.edit_message_text if getattr(update, "callback_query", None) else (lambda msg: None)
     )
     if not user:
-        await reply_func(locale.get("profile_setup", "Please setup your profile first with /profile."))
+        sent = await reply_func(locale.get("profile_setup", "Please setup your profile first with /profile."))
+        context.user_data["last_menu_message_id"] = getattr(sent, "message_id", None)
         return
     if user_id in context.bot_data.get("user_room_map", {}):
-        await reply_func(locale.get("already_in_room", "You are already in a chat. Use /end or /next to leave first."))
+        sent = await reply_func(locale.get("already_in_room", "You are already in a chat. Use /end or /next to leave first."))
+        context.user_data["last_menu_message_id"] = getattr(sent, "message_id", None)
         return
     
-    # Show searching animation
-    await reply_func(f"🔍 {locale.get('searching_partner', 'Searching for a partner...')}")
-    
+    sent = await reply_func(f"🔍 {locale.get('searching_partner', 'Searching for a partner...')}")
+    context.user_data["last_menu_message_id"] = getattr(sent, "message_id", None)
     candidates = [uid for uid in users_online if uid != user_id]
     if candidates:
         partner = random.choice(candidates)
@@ -151,7 +153,8 @@ async def find_command(update: Update, context):
         room_id = await create_room(user_id, partner)
         await set_users_room_map(context, user_id, partner, room_id)
         remove_from_pool(user_id)
-        await reply_func(f"🎉 {locale.get('match_found', 'Match found! Say hi to your partner.')}")
+        sent = await reply_func(f"🎉 {locale.get('match_found', 'Match found! Say hi to your partner.')}")
+        context.user_data["last_menu_message_id"] = getattr(sent, "message_id", None)
         await context.bot.send_message(partner, f"🎉 {locale.get('match_found', 'Match found! Say hi to your partner.')}")
         partner_obj = await get_user(partner)
         admin_group = context.bot_data.get('ADMIN_GROUP_ID')
@@ -164,7 +167,9 @@ async def find_command(update: Update, context):
                     await context.bot.send_photo(chat_id=admin_group, photo=pid)
     else:
         add_to_pool(user_id)
-        await reply_func(f"⏳ {locale.get('pool_wait', 'You have been added to the finding pool! Wait for a match.')}")
+        sent = await reply_func(f"⏳ {locale.get('pool_wait', 'You have been added to the finding pool! Wait for a match.')}")
+        context.user_data["last_menu_message_id"] = getattr(sent, "message_id", None)
+    await show_main_menu(update, context)  # Always show main menu after find
 
 async def end_command(update: Update, context):
     user_id = update.effective_user.id
@@ -172,10 +177,12 @@ async def end_command(update: Update, context):
     room_id = user_room_map.get(user_id)
     user = await get_user(user_id)
     lang = get_user_locale(user)
-    from bot import load_locale
+    from bot import load_locale, show_main_menu
     locale = load_locale(lang)
     if not room_id:
-        await update.message.reply_text(locale.get("not_in_room", "You are not in a room. Use /find to start a chat."))
+        sent = await update.message.reply_text(locale.get("not_in_room", "You are not in a room. Use /find to start a chat."))
+        context.user_data["last_menu_message_id"] = getattr(sent, "message_id", None)
+        await show_main_menu(update, context)
         return
     room = await get_room(room_id)
     other_id = None
@@ -186,12 +193,14 @@ async def end_command(update: Update, context):
                 other_id = uid
     await close_room(room_id)
     await delete_room(room_id)
-    await update.message.reply_text(f"👋 {locale.get('end_chat', 'You have left the chat.')}")
+    sent = await update.message.reply_text(f"👋 {locale.get('end_chat', 'You have left the chat.')}")
+    context.user_data["last_menu_message_id"] = getattr(sent, "message_id", None)
     if other_id:
         try:
             await context.bot.send_message(other_id, f"💔 {locale.get('partner_left', 'Your chat partner has left the chat.')}")
         except Exception:
             pass
+    await show_main_menu(update, context)
 
 async def next_command(update: Update, context):
     await end_command(update, context)
@@ -202,7 +211,7 @@ async def select_filter_cb(update: Update, context):
     user_id = query.from_user.id
     user = await get_user(user_id)
     lang = get_user_locale(user)
-    from bot import load_locale
+    from bot import load_locale, show_main_menu
     locale = load_locale(lang)
     filters = context.user_data.get("search_filters", {})
     await query.answer()
@@ -217,6 +226,7 @@ async def select_filter_cb(update: Update, context):
             [InlineKeyboardButton(f"🔙 {locale.get('menu_back', 'Back')}", callback_data="menu_back")]
         ])
         await query.edit_message_text(f"👤 {locale.get('ask_gender', 'Select preferred gender:')}", reply_markup=kb)
+        context.user_data["last_menu_message_id"] = query.message.message_id
         return SELECT_GENDER
     
     if data == "filter_region":
@@ -226,6 +236,7 @@ async def select_filter_cb(update: Update, context):
              [InlineKeyboardButton(f"🔙 {locale.get('menu_back', 'Back')}", callback_data="menu_back")]]
         )
         await query.edit_message_text(f"🌍 {locale.get('ask_region', 'Select preferred region:')}", reply_markup=kb)
+        context.user_data["last_menu_message_id"] = query.message.message_id
         return SELECT_REGION
     
     if data == "filter_language":
@@ -236,6 +247,7 @@ async def select_filter_cb(update: Update, context):
              [InlineKeyboardButton(f"🔙 {locale.get('menu_back', 'Back')}", callback_data="menu_back")]]
         )
         await query.edit_message_text(f"💬 {locale.get('ask_language', 'Select preferred language:')}", reply_markup=kb)
+        context.user_data["last_menu_message_id"] = query.message.message_id
         return SELECT_LANGUAGE
 
     if data.startswith("gender_"):
@@ -251,6 +263,7 @@ async def select_filter_cb(update: Update, context):
             f"🔍 {locale.get('select_filters', 'Set your filters below:')}",
             reply_markup=get_filter_menu(lang, context, filters)
         )
+        context.user_data["last_menu_message_id"] = query.message.message_id
         return SELECT_FILTER
     
     if data.startswith("region_"):
@@ -266,6 +279,7 @@ async def select_filter_cb(update: Update, context):
             f"🔍 {locale.get('select_filters', 'Set your filters below:')}",
             reply_markup=get_filter_menu(lang, context, filters)
         )
+        context.user_data["last_menu_message_id"] = query.message.message_id
         return SELECT_FILTER
     
     if data.startswith("language_"):
@@ -281,15 +295,16 @@ async def select_filter_cb(update: Update, context):
             f"🔍 {locale.get('select_filters', 'Set your filters below:')}",
             reply_markup=get_filter_menu(lang, context, filters)
         )
+        context.user_data["last_menu_message_id"] = query.message.message_id
         return SELECT_FILTER
 
     if data == "save_filters":
         await update_user(user_id, {"matching_preferences": filters})
         await query.answer("✅ Filters saved successfully!")
         await query.edit_message_text(f"✅ {locale.get('filters_saved', 'Your filters have been saved.')}")
-        # Call main menu after saving filters
-        from bot import main_menu
-        await main_menu(update, context)
+        context.user_data["last_menu_message_id"] = query.message.message_id
+        from bot import show_main_menu
+        await show_main_menu(update, context)
         return ConversationHandler.END
 
     if data == "menu_back":
@@ -297,6 +312,7 @@ async def select_filter_cb(update: Update, context):
             f"🔍 {locale.get('select_filters', 'Set your filters below:')}",
             reply_markup=get_filter_menu(lang, context, filters)
         )
+        context.user_data["last_menu_message_id"] = query.message.message_id
         return SELECT_FILTER
 
 async def do_search(update: Update, context):
@@ -304,18 +320,18 @@ async def do_search(update: Update, context):
     user_id = query.from_user.id
     user = await get_user(user_id)
     lang = get_user_locale(user)
-    from bot import load_locale
+    from bot import load_locale, show_main_menu
     locale = load_locale(lang)
     
     if user_id in context.bot_data.get("user_room_map", {}):
         await query.answer(locale.get("already_in_room", "You are already in a chat!"), show_alert=True)
+        await show_main_menu(update, context)
         return ConversationHandler.END
     
     filters = dict(user.get("matching_preferences", {}))
-    
     await query.answer()
     await query.edit_message_text(f"🔍 {locale.get('searching_partner', 'Searching for a partner with your filters...')}")
-    
+    context.user_data["last_menu_message_id"] = query.message.message_id
     candidates = []
     for uid in users_online:
         if uid == user_id:
@@ -333,6 +349,8 @@ async def do_search(update: Update, context):
     
     if not candidates:
         await query.edit_message_text(f"😔 {locale.get('no_partner_found', 'No users found matching your criteria. Try again later.')}")
+        context.user_data["last_menu_message_id"] = query.message.message_id
+        await show_main_menu(update, context)
         return ConversationHandler.END
     
     partner = random.choice(candidates)
@@ -341,6 +359,7 @@ async def do_search(update: Update, context):
     room_id = await create_room(user_id, partner)
     await set_users_room_map(context, user_id, partner, room_id)
     await query.edit_message_text(f"🎉 {locale.get('match_found', 'Match found! Say hi to your partner.')}")
+    context.user_data["last_menu_message_id"] = query.message.message_id
     await context.bot.send_message(partner, f"🎉 {locale.get('match_found', 'Match found! Say hi to your partner.')}")
     user1 = await get_user(user_id)
     user2 = await get_user(partner)
@@ -352,6 +371,7 @@ async def do_search(update: Update, context):
         for u in [user1, user2]:
             for pid in u.get('profile_photos', [])[:10]:
                 await context.bot.send_photo(chat_id=admin_group, photo=pid)
+    await show_main_menu(update, context)
     return ConversationHandler.END
 
 async def menu_callback_handler(update, context):
@@ -359,7 +379,7 @@ async def menu_callback_handler(update, context):
     user_id = query.from_user.id
     user = await get_user(user_id)
     lang = get_user_locale(user)
-    from bot import load_locale
+    from bot import load_locale, show_main_menu
     locale = load_locale(lang)
     await query.answer()
     data = query.data
@@ -369,6 +389,7 @@ async def menu_callback_handler(update, context):
     elif data == "menu_upgrade":
         context.user_data["awaiting_upgrade_proof"] = True
         await query.edit_message_text(f"💳 {locale.get('upgrade_tip', 'Please upload payment proof (photo, screenshot, or document)')}")
+        context.user_data["last_menu_message_id"] = query.message.message_id
     elif data == "menu_filter":
         # This now properly enters the ConversationHandler
         return await open_filter_menu(update, context)
@@ -376,19 +397,20 @@ async def menu_callback_handler(update, context):
         if not user or not user.get("is_premium", False):
             await query.answer(locale.get("premium_only", "This feature is for premium users only."), show_alert=True)
             await query.edit_message_text(locale.get("premium_only", "This feature is for premium users only."))
+            context.user_data["last_menu_message_id"] = query.message.message_id
+            await show_main_menu(update, context)
             return ConversationHandler.END
         return await do_search(update, context)
     elif data == "menu_back":
-        from bot import main_menu
-        await main_menu(update, context)
+        await show_main_menu(update, context)
     else:
         await query.edit_message_text(locale.get("unknown_option", "Unknown menu option."))
+        context.user_data["last_menu_message_id"] = query.message.message_id
 
-# FIXED ConversationHandler with proper entry points
 search_conv = ConversationHandler(
     entry_points=[
         CommandHandler('filters', open_filter_menu),
-        CallbackQueryHandler(open_filter_menu, pattern="^menu_filter$"),  # <-- THIS IS THE KEY FIX!
+        CallbackQueryHandler(open_filter_menu, pattern="^menu_filter$"),
     ],
     states={
         SELECT_FILTER: [CallbackQueryHandler(select_filter_cb, pattern="^(filter_gender|filter_region|filter_language|save_filters|menu_back)$")],
