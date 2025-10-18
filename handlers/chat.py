@@ -15,7 +15,11 @@ MAX_LINK_STRIKES = 3  # 3 strikes: then notify admin with #spam
 async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
-    room_id = context.bot_data.get("user_room_map", {}).get(user_id)
+
+    # FIX: Try context.user_data['room_id'] first, then fallback to bot_data['user_room_map']
+    room_id = context.user_data.get("room_id")
+    if not room_id:
+        room_id = context.bot_data.get("user_room_map", {}).get(user_id)
     if not room_id:
         await update.message.reply_text("Not in a room. Use /find to start a chat.")
         return
