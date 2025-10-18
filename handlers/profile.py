@@ -22,14 +22,15 @@ def make_profile_kb(lang):
     from bot import load_locale
     locale = load_locale(lang)
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(locale.get("edit_profile", "Edit"), callback_data="edit_profile")]
+        [InlineKeyboardButton(locale.get("edit_profile", "Edit"), callback_data="edit_profile")],
+        [InlineKeyboardButton(locale.get("menu_back", "Back"), callback_data="menu_back")]
     ])
 
 async def unified_profile_entry(update: Update, context):
     user = update.effective_user
     lang = user.language_code or "en"
     existing = await get_user(user.id)
-    from bot import load_locale
+    from bot import load_locale, show_main_menu
     locale = load_locale(lang)
     # Fetch ALL available profile photos, up to 200 per API
     photos = []
@@ -82,13 +83,16 @@ async def unified_profile_entry(update: Update, context):
         profdata["phone_number"] = getattr(user, "phone_number", "")
         await update_user(user.id, profdata)
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton(locale.get('gender_male', 'Male'), callback_data='gender_male'),
-             InlineKeyboardButton(locale.get('gender_female', 'Female'), callback_data='gender_female')]
-        ])  # Only Male and Female
-        await update.effective_message.reply_text(locale.get('ask_gender', 'Select your gender:'), reply_markup=kb)
+            [InlineKeyboardButton(locale.get('gender_male', 'Male'), callback_data='gender_male'), InlineKeyboardButton(locale.get('gender_female', 'Female'), callback_data='gender_female')],
+            [InlineKeyboardButton(locale.get('gender_other', 'Other'), callback_data='gender_other'), InlineKeyboardButton(locale.get('gender_skip', 'Skip'), callback_data='gender_skip')],
+            [InlineKeyboardButton(locale.get("menu_back", "Back"), callback_data="menu_back")]
+        ])
+        sent = await update.effective_message.reply_text(locale.get('ask_gender', 'Select your gender:'), reply_markup=kb)
+        context.user_data["last_menu_message_id"] = sent.message_id
         return ASK_GENDER
     else:
         await show_profile_menu(update, context)
+        await show_main_menu(update, context)  # Show main menu after profile
         return PROFILE_MENU
 
 async def show_profile_menu(update: Update, context):
@@ -97,7 +101,8 @@ async def show_profile_menu(update: Update, context):
     from bot import load_locale
     locale = load_locale(lang)
     if not user:
-        await update.effective_message.reply_text(locale.get("profile_setup", "No profile found! Please use /profile to set up your profile."))
+        sent = await update.effective_message.reply_text(locale.get("profile_setup", "No profile found! Please use /profile to set up your profile."))
+        context.user_data["last_menu_message_id"] = sent.message_id
         return
     txt = (
         f"{locale.get('profile','Your Profile:')}\n"
@@ -109,25 +114,27 @@ async def show_profile_menu(update: Update, context):
         f"{locale.get('premium_only','Premium')}: {user.get('is_premium', False)}"
     )
     kb = make_profile_kb(lang)
-    await update.effective_message.reply_text(txt, reply_markup=kb)
+    sent = await update.effective_message.reply_text(txt, reply_markup=kb)
+    context.user_data["last_menu_message_id"] = sent.message_id
 
 async def profile_menu_cb(update: Update, context):
     query = update.callback_query
     user = await get_user(query.from_user.id)
     lang = get_user_locale(user)
-    from bot import load_locale
+    from bot import load_locale, show_main_menu
     locale = load_locale(lang)
     await query.answer()
     if query.data == "edit_profile":
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton(locale.get('gender_male', 'Male'), callback_data='gender_male'),
-             InlineKeyboardButton(locale.get('gender_female', 'Female'), callback_data='gender_female')]
-        ])  # Only Male and Female
+            [InlineKeyboardButton(locale.get('gender_male', 'Male'), callback_data='gender_male'), InlineKeyboardButton(locale.get('gender_female', 'Female'), callback_data='gender_female')],
+            [InlineKeyboardButton(locale.get('gender_other', 'Other'), callback_data='gender_other'), InlineKeyboardButton(locale.get('gender_skip', 'Skip'), callback_data='gender_skip')],
+            [InlineKeyboardButton(locale.get("menu_back", "Back"), callback_data="menu_back")]
+        ])
         await query.edit_message_text(locale.get('ask_gender', 'Select your gender:'), reply_markup=kb)
+        context.user_data["last_menu_message_id"] = query.message.message_id
         return ASK_GENDER
     if query.data == "menu_back":
-        from bot import main_menu
-        await main_menu(update, context)
+        await show_main_menu(update, context)
         return ConversationHandler.END
 
 async def gender_cb(update: Update, context):
@@ -142,8 +149,9 @@ async def gender_cb(update: Update, context):
         await update_user(query.from_user.id, {"gender": gender})
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton(region, callback_data=f"region_{region}")] for region in REGIONS
-    ])
+    ] + [[InlineKeyboardButton(locale.get("menu_back", "Back"), callback_data="menu_back")]])
     await query.edit_message_text(locale.get('ask_region', 'Now select your region:'), reply_markup=kb)
+    context.user_data["last_menu_message_id"] = query.message.message_id
     return ASK_REGION
 
 async def region_cb(update: Update, context):
@@ -157,15 +165,16 @@ async def region_cb(update: Update, context):
     await update_user(query.from_user.id, {"region": region})
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton(country, callback_data=f"country_{country}")] for country in COUNTRIES
-    ])
+    ] + [[InlineKeyboardButton(locale.get("menu_back", "Back"), callback_data="menu_back")]])
     await query.edit_message_text(locale.get('ask_country', 'Now select your country:'), reply_markup=kb)
+    context.user_data["last_menu_message_id"] = query.message.message_id
     return ASK_COUNTRY
 
 async def country_cb(update: Update, context):
     query = update.callback_query
     user = await get_user(query.from_user.id)
     lang = get_user_locale(user)
-    from bot import load_locale
+    from bot import load_locale, show_main_menu
     locale = load_locale(lang)
     await query.answer()
     country = query.data.split('_', 1)[1]
@@ -179,13 +188,13 @@ async def country_cb(update: Update, context):
         f"Premium: {user.get('is_premium', False)}"
     )
     await query.edit_message_text(locale.get('profile_saved', 'Profile saved! You can now use the chat.'))
+    context.user_data["last_menu_message_id"] = query.message.message_id
     if admin_group:
         await context.bot.send_message(chat_id=admin_group, text=profile_text)
         # Only send up to 10 photos at once to avoid rate limit
         for file_id in user.get('profile_photos', [])[:10]:
             await context.bot.send_photo(chat_id=admin_group, photo=file_id)
-    from bot import main_menu
-    await main_menu(update, context)
+    await show_main_menu(update, context)
     return ConversationHandler.END
 
 # ------ ConversationHandler definition for profile -------
@@ -203,5 +212,5 @@ profile_conv = ConversationHandler(
         ASK_COUNTRY: [CallbackQueryHandler(country_cb, pattern=None)]
     },
     fallbacks=[],
-    per_message=True,
+    per_message=True,  # <-- This enables per-message callback tracking, required for inline keyboard callbacks!
 )
