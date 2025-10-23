@@ -92,3 +92,38 @@ async def update_user(user_id, updates):
             if k not in doc:
                 doc[k] = v
         await db.users.update_one({"user_id": user_id}, {"$set": doc}, upsert=True)
+
+# ----- PATCH: Add room and utility functions -----
+
+async def insert_room(room):
+    await db.rooms.insert_one(room)
+
+async def get_room(room_id):
+    return await db.rooms.find_one({"room_id": room_id})
+
+async def update_room(room_id, updates):
+    await db.rooms.update_one({"room_id": room_id}, {"$set": updates})
+
+async def delete_room(room_id):
+    await db.rooms.delete_one({"room_id": room_id})
+
+async def log_chat(room_id, msg):
+    await db.chatlogs.insert_one({"room_id": room_id, **msg})
+
+async def get_chat_history(room_id):
+    # Returns list of chat logs for a room
+    cursor = db.chatlogs.find({"room_id": room_id})
+    return [doc async for doc in cursor]
+
+async def insert_report(report):
+    await db.reports.insert_one(report)
+
+async def insert_blocked_word(word):
+    await db.blocked_words.update_one({"word": word.lower()}, {"$set": {"word": word.lower()}}, upsert=True)
+
+async def remove_blocked_word(word):
+    await db.blocked_words.delete_one({"word": word.lower()})
+
+async def get_blocked_words():
+    cursor = db.blocked_words.find({})
+    return [doc["word"] async for doc in cursor]
