@@ -2,6 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ConversationHandler, CallbackQueryHandler, CommandHandler
 from db import get_user, get_room, delete_room, update_user
 from rooms import add_to_pool, remove_from_pool, users_online, create_room, close_room, find_match_for  # PATCHED: import find_match_for
+from handlers.profile import unified_profile_entry
 import random
 
 SELECT_FILTER, SELECT_GENDER, SELECT_REGION, SELECT_LANGUAGE = range(4)
@@ -151,8 +152,10 @@ async def find_command(update: Update, context):
         update.callback_query.edit_message_text if getattr(update, "callback_query", None) else (lambda msg: None)
     )
     if not user:
+        # Import the profile setup entry point
         await reply_func(locale.get("profile_setup", "Please setup your profile first with /profile."))
-        return
+        # Start the profile setup conversation
+        return await unified_profile_entry(update, context)
     if user_id in context.bot_data.get("user_room_map", {}):
         await reply_func(locale.get("already_in_room", "You are already in a chat. Use /end or /next to leave first."))
         return
