@@ -20,7 +20,7 @@ from handlers.admincmds import (
 )
 from handlers.match import (
     find_command, search_conv, end_command, next_command, open_filter_menu,
-    menu_callback_handler, select_filter_cb
+    menu_callback_handler, select_filter_cb, stop_search_callback
 )
 from handlers.forward import forward_to_admin
 from admin import downgrade_expired_premium
@@ -36,10 +36,10 @@ logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=lo
 logger = logging.getLogger(__name__)
 
 LANGS = {
-    "en": "English",
-    "ar": "Arabic",
-    "hi": "Hindi",
-    "id": "Indonesian"
+    "en": "🇬🇧 English",
+    "ar": "🇸🇦 العربية", 
+    "hi": "🇮🇳 हिंदी",
+    "id": "🇮🇩 Indonesia"
 }
 
 def load_locale(lang):
@@ -77,13 +77,20 @@ async def reply_translated(update, context, key, **kwargs):
     await update.message.reply_text(msg)
 
 async def start(update: Update, context):
+    # Enhanced welcome with better formatting
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton(locale, callback_data=f"lang_{code}")]
         for code, locale in LANGS.items()
     ])
+    welcome_text = (
+        "🎉 *Welcome to MeetMate!*\n\n"
+        "👋 Your friendly anonymous chat platform to meet new people from around the world!\n\n"
+        "🌍 *Choose your language to get started:*"
+    )
     await update.message.reply_text(
-        load_locale("en")["welcome"],
-        reply_markup=kb
+        welcome_text,
+        reply_markup=kb,
+        parse_mode='Markdown'
     )
     context.user_data.pop("last_menu_message_id", None)
 
@@ -93,15 +100,17 @@ async def language_select_callback(update: Update, context):
     lang = query.data.split("_", 1)[1]
     await update_user(query.from_user.id, {"language": lang})
     locale = load_locale(lang)
-    kb = make_inline_kb([
-        ("profile", "menu_profile"),
-        ("find", "menu_find"),
-        ("upgrade_tip", "menu_upgrade"),
-        ("filters", "menu_filter"),
-        ("search", "menu_search")
-    ], lang)
-    # Menu logic: always edit previous if possible
-    await show_main_menu(update, context, locale.get("main_menu", "Main Menu:"), kb)
+    
+    # Better menu layout with emojis
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton(f"👤 {locale.get('profile', 'Profile')}", callback_data="menu_profile")],
+        [InlineKeyboardButton(f"🔍 {locale.get('find', 'Find Partner')}", callback_data="menu_find")],
+        [InlineKeyboardButton(f"🔎 {locale.get('search', 'Advanced Search')}", callback_data="menu_search")],
+        [InlineKeyboardButton(f"⚙️ {locale.get('filters', 'Filter Settings')}", callback_data="menu_filter")],
+        [InlineKeyboardButton(f"⭐ {locale.get('upgrade', 'Upgrade to Premium')}", callback_data="menu_upgrade")]
+    ])
+    
+    await show_main_menu(update, context, f"🏠 {locale.get('main_menu', 'Main Menu:')}", kb)
     user = await get_user(query.from_user.id)
     if not user:
         await unified_profile_entry(update, context)
@@ -114,17 +123,16 @@ async def show_main_menu(update, context, menu_text=None, reply_markup=None):
         user = await get_user(update.effective_user.id)
         lang = get_user_locale(user)
         locale = load_locale(lang)
-        menu_text = locale.get("main_menu", "Main Menu:")
-        reply_markup = make_inline_kb([
-            ("profile", "menu_profile"),
-            ("find", "menu_find"),
-            ("upgrade_tip", "menu_upgrade"),
-            ("filters", "menu_filter"),
-            ("search", "menu_search")
-        ], lang)
+        menu_text = f"🏠 {locale.get('main_menu', 'Main Menu:')}"
+        reply_markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton(f"👤 {locale.get('profile', 'Profile')}", callback_data="menu_profile")],
+            [InlineKeyboardButton(f"🔍 {locale.get('find', 'Find Partner')}", callback_data="menu_find")],
+            [InlineKeyboardButton(f"🔎 {locale.get('search', 'Advanced Search')}", callback_data="menu_search")],
+            [InlineKeyboardButton(f"⚙️ {locale.get('filters', 'Filter Settings')}", callback_data="menu_filter")],
+            [InlineKeyboardButton(f"⭐ {locale.get('upgrade', 'Upgrade to Premium')}", callback_data="menu_upgrade")]
+        ])
     try:
         if message_id:
-            # Try to edit the previous menu message
             await context.bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
@@ -132,16 +140,13 @@ async def show_main_menu(update, context, menu_text=None, reply_markup=None):
                 reply_markup=reply_markup
             )
         else:
-            # Send a new menu message and track its ID
             sent = await update.effective_message.reply_text(menu_text, reply_markup=reply_markup)
             context.user_data["last_menu_message_id"] = sent.message_id
             return
     except Exception:
-        # Fallback: Send a new menu message and update tracking
         sent = await update.effective_message.reply_text(menu_text, reply_markup=reply_markup)
         context.user_data["last_menu_message_id"] = sent.message_id
         return
-    # If edited, re-save message_id in case the menu moved (e.g. after language, profile, etc.)
     context.user_data["last_menu_message_id"] = message_id
 
 def is_true_admin(update: Update):
@@ -183,6 +188,9 @@ def main():
 
     app.add_handler(CallbackQueryHandler(language_select_callback, pattern="^lang_"))
     app.add_handler(CallbackQueryHandler(menu_callback_handler, pattern="^(menu_find|menu_upgrade|menu_filter|menu_search|menu_back)$"))
+    
+    # FIX #1: Add handler for stop/cancel search
+    app.add_handler(CallbackQueryHandler(stop_search_callback, pattern="^(stop_search|cancel_search)$"))
 
     admin_filter = filters.User(ADMIN_ID)
     app.add_handler(CommandHandler("block", admin_block, admin_filter))
@@ -207,7 +215,8 @@ def main():
         await downgrade_expired_premium()
     app.job_queue.run_repeating(expiry_job, interval=3600, first=10)
 
-    logger.info("AnonindoChat Bot started (polling).")
+    logger.info("🚀 MeetMate Bot started successfully!")
+    logger.info("📡 Polling for updates...")
     app.run_polling()
 
 if __name__ == "__main__":
