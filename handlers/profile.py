@@ -30,7 +30,13 @@ async def unified_profile_entry(update: Update, context):
     lang = user.language_code or "en"
     existing = await get_user(user.id)
     from bot import load_locale
+    
+    # Update language if we have existing user
+    if existing:
+        lang = get_user_locale(existing)
+    
     locale = load_locale(lang)
+    
     # Fetch ALL available profile photos, up to 200 per API
     photos = []
     try:
@@ -46,6 +52,7 @@ async def unified_profile_entry(update: Update, context):
     notify_admin = False
     admin_group = context.bot_data.get("ADMIN_GROUP_ID")
     old_info = {}
+    
     if existing:
         old_info = {
             "username": existing.get("username", ""),
@@ -67,11 +74,11 @@ async def unified_profile_entry(update: Update, context):
                 f"New photos: {photos}\n"
             )
             await context.bot.send_message(chat_id=admin_group, text=msg)
-            # Only send up to 10 (to avoid Telegram rate limits), but all are stored in DB
             for pid in photos[:10]:
                 await context.bot.send_photo(chat_id=admin_group, photo=pid)
         if updates:
             await update_user(user.id, updates)
+    
     if not existing:
         # New user: create profile and ask gender
         profdata = default_user(user)
@@ -81,13 +88,26 @@ async def unified_profile_entry(update: Update, context):
         profdata["name"] = user.full_name or user.first_name or ""
         profdata["phone_number"] = getattr(user, "phone_number", "")
         await update_user(user.id, profdata)
+        
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton(locale.get('gender_male', 'Male'), callback_data='gender_male'),
              InlineKeyboardButton(locale.get('gender_female', 'Female'), callback_data='gender_female')]
-        ])  # Only Male and Female
-        await update.effective_message.reply_text(locale.get('ask_gender', 'Select your gender:'), reply_markup=kb)
+        ])
+        
+        # Send the gender selection message
+        if hasattr(update, 'callback_query') and update.callback_query:
+            await update.callback_query.message.reply_text(
+                locale.get('ask_gender', 'Select your gender:'), 
+                reply_markup=kb
+            )
+        else:
+            await update.effective_message.reply_text(
+                locale.get('ask_gender', 'Select your gender:'), 
+                reply_markup=kb
+            )
         return ASK_GENDER
     else:
+        # FIX #1: Existing user - show profile and properly enter PROFILE_MENU state
         await show_profile_menu(update, context)
         return PROFILE_MENU
 
@@ -96,9 +116,15 @@ async def show_profile_menu(update: Update, context):
     lang = get_user_locale(user)
     from bot import load_locale
     locale = load_locale(lang)
+    
     if not user:
-        await update.effective_message.reply_text(locale.get("profile_setup", "No profile found! Please use /profile to set up your profile."))
+        msg = locale.get("profile_setup", "No profile found! Please use /profile to set up your profile.")
+        if hasattr(update, 'callback_query') and update.callback_query:
+            await update.callback_query.message.reply_text(msg)
+        else:
+            await update.effective_message.reply_text(msg)
         return
+    
     txt = (
         f"{locale.get('profile','Your Profile:')}\n"
         f"ID: {user.get('user_id')}\n"
@@ -109,7 +135,13 @@ async def show_profile_menu(update: Update, context):
         f"{locale.get('premium_only','Premium')}: {user.get('is_premium', False)}"
     )
     kb = make_profile_kb(lang)
-    await update.effective_message.reply_text(txt, reply_markup=kb)
+    
+    # FIX #1: Send profile message properly
+    if hasattr(update, 'callback_query') and update.callback_query:
+        # If from callback, reply to the message (not edit)
+        await update.callback_query.message.reply_text(txt, reply_markup=kb)
+    else:
+        await update.effective_message.reply_text(txt, reply_markup=kb)
 
 async def profile_menu_cb(update: Update, context):
     query = update.callback_query
@@ -118,13 +150,15 @@ async def profile_menu_cb(update: Update, context):
     from bot import load_locale
     locale = load_locale(lang)
     await query.answer()
+    
     if query.data == "edit_profile":
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton(locale.get('gender_male', 'Male'), callback_data='gender_male'),
              InlineKeyboardButton(locale.get('gender_female', 'Female'), callback_data='gender_female')]
-        ])  # Only Male and Female
+        ])
         await query.edit_message_text(locale.get('ask_gender', 'Select your gender:'), reply_markup=kb)
         return ASK_GENDER
+    
     if query.data == "menu_back":
         from bot import main_menu
         await main_menu(update, context)
@@ -181,7 +215,6 @@ async def country_cb(update: Update, context):
     await query.edit_message_text(locale.get('profile_saved', 'Profile saved! You can now use the chat.'))
     if admin_group:
         await context.bot.send_message(chat_id=admin_group, text=profile_text)
-        # Only send up to 10 photos at once to avoid rate limit
         for file_id in user.get('profile_photos', [])[:10]:
             await context.bot.send_photo(chat_id=admin_group, photo=file_id)
     from bot import main_menu
