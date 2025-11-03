@@ -141,18 +141,30 @@ async def find_command(update: Update, context):
     # Get proper reply function
     if hasattr(update, 'callback_query') and update.callback_query:
         reply_func = update.callback_query.edit_message_text
+        is_callback = True
     elif hasattr(update, 'message') and update.message:
         reply_func = update.message.reply_text
+        is_callback = False
     else:
         return
     
-    # FIX #2: Check if user has profile setup (gender, region, country must be set)
+    # FIX #1: Check if user has profile setup (gender, region, country must be set)
     if not user or not user.get('gender') or not user.get('region') or not user.get('country'):
         from bot import load_locale
         lang = user.get('language', 'en') if user else 'en'
         locale = load_locale(lang)
-        await reply_func(f"📝 {locale.get('profile_setup_required', 'Please complete your profile first before you can start chatting!')}")
-        # Start the profile setup conversation
+        
+        # Send message asking to set up profile
+        msg_text = f"📝 {locale.get('profile_setup_required', 'Please complete your profile first before you can start chatting!')}"
+        
+        if is_callback:
+            await update.callback_query.answer()
+            sent = await update.callback_query.message.reply_text(msg_text)
+        else:
+            sent = await update.message.reply_text(msg_text)
+        
+        # Now properly trigger profile setup as a command (this will start the ConversationHandler)
+        # Create a fake command update to trigger the profile conversation handler
         return await unified_profile_entry(update, context)
     
     lang = get_user_locale(user)
@@ -163,7 +175,7 @@ async def find_command(update: Update, context):
         await reply_func(locale.get("already_in_room", "You are already in a chat. Use /end or /next to leave first."))
         return
     
-    # FIX #1: Check if user is already in waiting pool
+    # Check if user is already in waiting pool
     if user_id in users_online:
         kb = InlineKeyboardMarkup([[
             InlineKeyboardButton(f"❌ {locale.get('stop_searching', 'Stop Searching')}", callback_data="stop_search")
@@ -171,22 +183,47 @@ async def find_command(update: Update, context):
         await reply_func(f"⏳ {locale.get('already_searching', 'You are already searching for a partner...')}", reply_markup=kb)
         return
     
-    # Show searching animation with cancel button
+    # FIX #2: Show only ONE message with cancel button
     kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton(f"❌ {locale.get('cancel_search', 'Cancel Search')}", callback_data="cancel_search")
+        InlineKeyboardButton(f"❌ {locale.get('cancel_search', 'Cancel')}", callback_data="cancel_search")
     ]])
-    await reply_func(f"🔍 {locale.get('searching_partner', 'Searching for a partner...')}", reply_markup=kb)
+    
+    # Send initial searching message
+    searching_msg = await reply_func(
+        f"🔍 {locale.get('searching_partner', 'Searching for a partner...')}",
+        reply_markup=kb
+    )
+    
+    # Store message for editing later if needed
+    if is_callback:
+        search_message_id = searching_msg.message_id if hasattr(searching_msg, 'message_id') else update.callback_query.message.message_id
+        search_chat_id = update.callback_query.message.chat_id
+    else:
+        search_message_id = searching_msg.message_id
+        search_chat_id = update.message.chat_id
     
     candidates = [uid for uid in users_online if uid != user_id]
     if candidates:
+        # Found match immediately
         partner = random.choice(candidates)
         remove_from_pool(partner)
         room_id = await create_room(user_id, partner)
         await set_users_room_map(context, user_id, partner, room_id)
         remove_from_pool(user_id)
         
-        # Send match found to both users in their respective languages
-        await reply_func(f"🎉 {locale.get('match_found', 'Match found! Say hi to your partner.')}")
+        # Edit the searching message to show match found (remove cancel button)
+        try:
+            await context.bot.edit_message_text(
+                chat_id=search_chat_id,
+                message_id=search_message_id,
+                text=f"🎉 {locale.get('match_found', 'Match found! Say hi to your partner.')}"
+            )
+        except:
+            # If edit fails, send new message
+            await context.bot.send_message(
+                chat_id=search_chat_id,
+                text=f"🎉 {locale.get('match_found', 'Match found! Say hi to your partner.')}"
+            )
         
         # Get partner's language and send in their language
         partner_obj = await get_user(partner)
@@ -204,10 +241,11 @@ async def find_command(update: Update, context):
                 for pid in u.get('profile_photos', [])[:10]:
                     await context.bot.send_photo(chat_id=admin_group, photo=pid)
     else:
+        # No match found, add to pool - keep the same message with cancel button
         add_to_pool(user_id)
-        await reply_func(f"⏳ {locale.get('pool_wait', 'You have been added to the finding pool! Wait for a match.')}", reply_markup=kb)
+        # Message already shows "Searching for a partner..." with cancel button, so we're done!
+        # User will wait until someone else searches
 
-# FIX #1: Add stop/cancel search handler
 async def stop_search_callback(update: Update, context):
     query = update.callback_query
     user_id = query.from_user.id
@@ -233,7 +271,7 @@ async def end_command(update: Update, context):
     from bot import load_locale
     locale = load_locale(lang)
     
-    # FIX #1: If not in room but in waiting pool, remove from pool
+    # If not in room but in waiting pool, remove from pool
     if not room_id:
         if user_id in users_online:
             remove_from_pool(user_id)
@@ -258,7 +296,7 @@ async def end_command(update: Update, context):
     await delete_room(room_id)
     await update.message.reply_text(f"👋 {locale.get('end_chat', 'You have left the chat.')}")
     
-    # FIX #3: Send partner_left message in OTHER user's language, not current user's language
+    # Send partner_left message in OTHER user's language
     if other_id:
         try:
             other_user = await get_user(other_id)
@@ -384,10 +422,10 @@ async def do_search(update: Update, context):
     from bot import load_locale
     locale = load_locale(lang)
     
-    # FIX #2: Check profile completeness
+    # Check profile completeness
     if not user or not user.get('gender') or not user.get('region') or not user.get('country'):
         await query.answer(locale.get('profile_setup_required', 'Please complete your profile first!'), show_alert=True)
-        await query.edit_message_text(f"📝 {locale.get('profile_setup_required', 'Please complete your profile first before you can start chatting!')}")
+        sent = await query.message.reply_text(f"📝 {locale.get('profile_setup_required', 'Please complete your profile first before you can start chatting!')}")
         return await unified_profile_entry(update, context)
     
     if user_id in context.bot_data.get("user_room_map", {}):
