@@ -35,6 +35,7 @@ LOCALE_DIR = os.path.join(os.path.dirname(__file__), "locales")
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# FIX #4: Removed duplicate emojis from LANGS
 LANGS = {
     "en": "🇬🇧 English",
     "ar": "🇸🇦 العربية", 
@@ -77,13 +78,13 @@ async def reply_translated(update, context, key, **kwargs):
     await update.message.reply_text(msg)
 
 async def start(update: Update, context):
-    # Enhanced welcome with better formatting
+    # FIX #3: Changed MeetMate to AnonIndoChat
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton(locale, callback_data=f"lang_{code}")]
         for code, locale in LANGS.items()
     ])
     welcome_text = (
-        "🎉 *Welcome to MeetMate!*\n\n"
+        "🎉 *Welcome to AnonIndoChat!*\n\n"
         "👋 Your friendly anonymous chat platform to meet new people from around the world!\n\n"
         "🌍 *Choose your language to get started:*"
     )
@@ -101,7 +102,7 @@ async def language_select_callback(update: Update, context):
     await update_user(query.from_user.id, {"language": lang})
     locale = load_locale(lang)
     
-    # Better menu layout with emojis
+    # FIX #4: Removed duplicate emojis - locale strings now don't have emojis
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton(f"👤 {locale.get('profile', 'Profile')}", callback_data="menu_profile")],
         [InlineKeyboardButton(f"🔍 {locale.get('find', 'Find Partner')}", callback_data="menu_find")],
@@ -189,7 +190,6 @@ def main():
     app.add_handler(CallbackQueryHandler(language_select_callback, pattern="^lang_"))
     app.add_handler(CallbackQueryHandler(menu_callback_handler, pattern="^(menu_find|menu_upgrade|menu_filter|menu_search|menu_back)$"))
     
-    # FIX #1: Add handler for stop/cancel search
     app.add_handler(CallbackQueryHandler(stop_search_callback, pattern="^(stop_search|cancel_search)$"))
 
     admin_filter = filters.User(ADMIN_ID)
@@ -215,7 +215,7 @@ def main():
         await downgrade_expired_premium()
     app.job_queue.run_repeating(expiry_job, interval=3600, first=10)
 
-    logger.info("🚀 MeetMate Bot started successfully!")
+    logger.info("🚀 AnonIndoChat Bot started successfully!")
     logger.info("📡 Polling for updates...")
     app.run_polling()
 
