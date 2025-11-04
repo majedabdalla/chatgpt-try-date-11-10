@@ -15,7 +15,9 @@ def default_user(user, language="en"):
         "blocked": False,
         "matching_preferences": {},
         "profile_photos": [],
-        "created_at": datetime.utcnow().isoformat()
+        "created_at": datetime.utcnow().isoformat(),
+        "referred_by": None,  # NEW: User ID of who referred this user
+        "referral_count": 0   # NEW: Number of users this person referred
     }
 
 def default_room(room_id, user1, user2):
