@@ -24,6 +24,7 @@ from handlers.match import (
     menu_callback_handler, select_filter_cb, stop_search_callback
 )
 from handlers.forward import forward_to_admin
+from handlers.referral import show_referral_info, process_referral, admin_check_referrals
 from admin import downgrade_expired_premium
 from handlers.message_router import route_message
 
@@ -78,6 +79,9 @@ async def reply_translated(update, context, key, **kwargs):
     await update.message.reply_text(msg)
 
 async def start(update: Update, context):
+    # Process referral if present
+    await process_referral(update, context)
+    
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton(locale, callback_data=f"lang_{code}")]
         for code, locale in LANGS.items()
@@ -185,6 +189,8 @@ def main():
     app.add_handler(CommandHandler("upgrade", start_upgrade))
     app.add_handler(CommandHandler("report", report_partner))
     app.add_handler(CommandHandler("filters", open_filter_menu))
+    app.add_handler(CommandHandler("referral", show_referral_info))  # NEW
+    app.add_handler(CommandHandler("invite", show_referral_info))  # NEW - alias
 
     app.add_handler(CallbackQueryHandler(language_select_callback, pattern="^lang_"))
     app.add_handler(CallbackQueryHandler(menu_callback_handler, pattern="^(menu_find|menu_upgrade|menu_filter|menu_search|menu_back)$"))
@@ -206,6 +212,7 @@ def main():
     app.add_handler(CommandHandler("setpremium", admin_setpremium, admin_filter))
     app.add_handler(CommandHandler("resetpremium", admin_resetpremium, admin_filter))
     app.add_handler(CommandHandler("adminroom", admin_adminroom, admin_filter))
+    app.add_handler(CommandHandler("checkreferrals", admin_check_referrals, admin_filter))  # NEW
 
     app.add_handler(CallbackQueryHandler(admin_callback))
 
