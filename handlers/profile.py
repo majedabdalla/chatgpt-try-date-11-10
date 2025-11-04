@@ -98,7 +98,7 @@ async def unified_profile_entry(update: Update, context):
         # Send the gender selection message
         if hasattr(update, 'callback_query') and update.callback_query:
             await update.callback_query.answer()
-            await update.callback_query.message.reply_text(
+            await update.callback_query.edit_message_text(
                 locale.get('ask_gender', 'Select your gender:'), 
                 reply_markup=kb
             )
@@ -119,7 +119,7 @@ async def unified_profile_entry(update: Update, context):
             
             if hasattr(update, 'callback_query') and update.callback_query:
                 await update.callback_query.answer()
-                await update.callback_query.message.reply_text(
+                await update.callback_query.edit_message_text(
                     locale.get('ask_gender', 'Select your gender:'), 
                     reply_markup=kb
                 )
@@ -205,9 +205,14 @@ async def gender_cb(update: Update, context):
     from bot import load_locale
     locale = load_locale(lang)
     await query.answer()
+    
+    # FIX #1: Extract gender value correctly
     gender = query.data.split('_', 1)[1]
-    if gender != "skip":
-        await update_user(query.from_user.id, {"gender": gender})
+    
+    # Always save the gender (no skip option for profile setup)
+    await update_user(query.from_user.id, {"gender": gender})
+    
+    # Show region selection
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton(region, callback_data=f"region_{region}")] for region in REGIONS
     ])
