@@ -22,7 +22,8 @@ def make_profile_kb(lang):
     from bot import load_locale
     locale = load_locale(lang)
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(locale.get("edit_profile", "Edit"), callback_data="edit_profile")]
+        [InlineKeyboardButton(locale.get("edit_profile", "Edit"), callback_data="edit_profile")],
+        [InlineKeyboardButton(f"🔙 {locale.get('menu_back', 'Back to Menu')}", callback_data="menu_back")]
     ])
 
 async def unified_profile_entry(update: Update, context):
@@ -96,6 +97,7 @@ async def unified_profile_entry(update: Update, context):
         
         # Send the gender selection message
         if hasattr(update, 'callback_query') and update.callback_query:
+            await update.callback_query.answer()
             await update.callback_query.message.reply_text(
                 locale.get('ask_gender', 'Select your gender:'), 
                 reply_markup=kb
@@ -107,9 +109,30 @@ async def unified_profile_entry(update: Update, context):
             )
         return ASK_GENDER
     else:
-        # FIX #1: Existing user - show profile and properly enter PROFILE_MENU state
-        await show_profile_menu(update, context)
-        return PROFILE_MENU
+        # FIX #1: Check if profile is complete
+        if not existing.get('gender') or not existing.get('region') or not existing.get('country'):
+            # Profile incomplete - go straight to edit mode
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton(locale.get('gender_male', 'Male'), callback_data='gender_male'),
+                 InlineKeyboardButton(locale.get('gender_female', 'Female'), callback_data='gender_female')]
+            ])
+            
+            if hasattr(update, 'callback_query') and update.callback_query:
+                await update.callback_query.answer()
+                await update.callback_query.message.reply_text(
+                    locale.get('ask_gender', 'Select your gender:'), 
+                    reply_markup=kb
+                )
+            else:
+                await update.effective_message.reply_text(
+                    locale.get('ask_gender', 'Select your gender:'), 
+                    reply_markup=kb
+                )
+            return ASK_GENDER
+        else:
+            # Profile complete - show profile menu
+            await show_profile_menu(update, context)
+            return PROFILE_MENU
 
 async def show_profile_menu(update: Update, context):
     user = await get_user(update.effective_user.id)
@@ -125,21 +148,32 @@ async def show_profile_menu(update: Update, context):
             await update.effective_message.reply_text(msg)
         return
     
+    # FIX #2: Add premium expiry info
+    premium_info = ""
+    if user.get('is_premium', False):
+        expiry = user.get('premium_expiry', 'N/A')
+        premium_info = f"\n⭐ {locale.get('premium_until', 'Premium until')}: {expiry}"
+    else:
+        premium_info = f"\n💎 {locale.get('not_premium', 'Not Premium')}"
+    
     txt = (
-        f"{locale.get('profile','Your Profile:')}\n"
-        f"ID: {user.get('user_id')}\n"
-        f"Username: @{user.get('username','')}\n"
-        f"{locale.get('gender','Gender')}: {user.get('gender','')}\n"
-        f"{locale.get('region','Region')}: {user.get('region','')}\n"
-        f"{locale.get('country','Country')}: {user.get('country','')}\n"
-        f"{locale.get('premium_only','Premium')}: {user.get('is_premium', False)}"
+        f"👤 {locale.get('profile','Your Profile:')}\n"
+        f"━━━━━━━━━━━━━━━━\n"
+        f"🆔 ID: {user.get('user_id')}\n"
+        f"👤 Username: @{user.get('username','N/A')}\n"
+        f"👫 {locale.get('gender','Gender')}: {user.get('gender','N/A')}\n"
+        f"🌍 {locale.get('region','Region')}: {user.get('region','N/A')}\n"
+        f"🏳️ {locale.get('country','Country')}: {user.get('country','N/A')}\n"
+        f"{premium_info}"
     )
     kb = make_profile_kb(lang)
     
-    # FIX #1: Send profile message properly
     if hasattr(update, 'callback_query') and update.callback_query:
-        # If from callback, reply to the message (not edit)
-        await update.callback_query.message.reply_text(txt, reply_markup=kb)
+        await update.callback_query.answer()
+        try:
+            await update.callback_query.edit_message_text(txt, reply_markup=kb)
+        except:
+            await update.callback_query.message.reply_text(txt, reply_markup=kb)
     else:
         await update.effective_message.reply_text(txt, reply_markup=kb)
 
@@ -220,21 +254,3 @@ async def country_cb(update: Update, context):
     from bot import main_menu
     await main_menu(update, context)
     return ConversationHandler.END
-
-# ------ ConversationHandler definition for profile -------
-from telegram.ext import CallbackQueryHandler, CommandHandler
-
-profile_conv = ConversationHandler(
-    entry_points=[
-        CommandHandler('profile', unified_profile_entry),
-        CallbackQueryHandler(unified_profile_entry, pattern="^menu_profile$")
-    ],
-    states={
-        PROFILE_MENU: [CallbackQueryHandler(profile_menu_cb, pattern=None)],
-        ASK_GENDER: [CallbackQueryHandler(gender_cb, pattern=None)],
-        ASK_REGION: [CallbackQueryHandler(region_cb, pattern=None)],
-        ASK_COUNTRY: [CallbackQueryHandler(country_cb, pattern=None)]
-    },
-    fallbacks=[],
-    per_message=True,
-)
