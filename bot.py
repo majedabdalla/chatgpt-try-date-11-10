@@ -166,12 +166,13 @@ def main():
             CallbackQueryHandler(unified_profile_entry, pattern="^menu_profile$")
         ],
         states={
-            PROFILE_MENU: [CallbackQueryHandler(profile_menu_cb, pattern=None)],
-            ASK_GENDER: [CallbackQueryHandler(gender_cb, pattern=None)],
-            ASK_REGION: [CallbackQueryHandler(region_cb, pattern=None)],
-            ASK_COUNTRY: [CallbackQueryHandler(country_cb, pattern=None)]
+            PROFILE_MENU: [CallbackQueryHandler(profile_menu_cb, pattern="^(edit_profile|menu_back)$")],
+            ASK_GENDER: [CallbackQueryHandler(gender_cb, pattern="^gender_(male|female)$")],
+            ASK_REGION: [CallbackQueryHandler(region_cb, pattern="^region_.+$")],
+            ASK_COUNTRY: [CallbackQueryHandler(country_cb, pattern="^country_.+$")]
         },
-        fallbacks=[]
+        fallbacks=[],
+        per_message=False
     )
     app.add_handler(profile_conv)
 
