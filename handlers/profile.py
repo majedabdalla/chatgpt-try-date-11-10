@@ -109,7 +109,7 @@ async def unified_profile_entry(update: Update, context):
             )
         return ASK_GENDER
     else:
-        # FIX #1: Check if profile is complete
+        # Check if profile is complete
         if not existing.get('gender') or not existing.get('region') or not existing.get('country'):
             # Profile incomplete - go straight to edit mode
             kb = InlineKeyboardMarkup([
@@ -148,7 +148,7 @@ async def show_profile_menu(update: Update, context):
             await update.effective_message.reply_text(msg)
         return
     
-    # FIX #2: Add premium expiry info
+    # Add premium expiry info
     premium_info = ""
     if user.get('is_premium', False):
         expiry = user.get('premium_expiry', 'N/A')
@@ -206,8 +206,11 @@ async def gender_cb(update: Update, context):
     locale = load_locale(lang)
     await query.answer()
     
-    # FIX #1: Extract gender value correctly
-    gender = query.data.split('_', 1)[1]
+    # Extract gender value - handle both 'gender_male' and 'gender_female'
+    if '_' in query.data:
+        gender = query.data.split('_', 1)[1]
+    else:
+        gender = query.data  # Fallback
     
     # Always save the gender (no skip option for profile setup)
     await update_user(query.from_user.id, {"gender": gender})
@@ -226,8 +229,11 @@ async def region_cb(update: Update, context):
     from bot import load_locale
     locale = load_locale(lang)
     await query.answer()
-    region = query.data.split('_', 1)[1]
+    
+    # Handle region with spaces (e.g., "North America")
+    region = query.data.replace('region_', '', 1)
     await update_user(query.from_user.id, {"region": region})
+    
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton(country, callback_data=f"country_{country}")] for country in COUNTRIES
     ])
@@ -241,7 +247,8 @@ async def country_cb(update: Update, context):
     from bot import load_locale
     locale = load_locale(lang)
     await query.answer()
-    country = query.data.split('_', 1)[1]
+    
+    country = query.data.replace('country_', '', 1)
     await update_user(query.from_user.id, {"country": country})
     user = await get_user(query.from_user.id)
     admin_group = context.bot_data.get("ADMIN_GROUP_ID")
