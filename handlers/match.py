@@ -7,7 +7,7 @@ import random
 
 SELECT_FILTER, SELECT_GENDER, SELECT_REGION, SELECT_LANGUAGE = range(4)
 REGIONS = ['Africa', 'Europe', 'Asia', 'North America', 'South America', 'Oceania', 'Antarctica']
-GENDERS = ['male', 'female', 'other']
+GENDERS = ['male', 'female']  # FIX #2: Removed 'other' from filter options
 LANGUAGES = ['en', 'ar', 'hi', 'id']
 
 def get_user_locale(user):
@@ -50,6 +50,7 @@ def get_filter_menu(lang, context, filters):
     else:
         language_display = locale.get('gender_skip', 'Any')
     
+    # FIX #3: Main filter menu only has "Save & Back" button (no separate Back button)
     rows = [
         [InlineKeyboardButton(
             f"👤 {locale.get('gender', 'Gender')}: {gender_display}",
@@ -63,8 +64,7 @@ def get_filter_menu(lang, context, filters):
             f"💬 {locale.get('language', 'Language')}: {language_display}",
             callback_data="filter_language"
         )],
-        [InlineKeyboardButton(f"💾 {locale.get('save_filters', 'Save Filters')}", callback_data="save_filters")],
-        [InlineKeyboardButton(f"🔙 {locale.get('menu_back', 'Back')}", callback_data="menu_back")]
+        [InlineKeyboardButton(f"💾 {locale.get('save_filters', 'Save & Back')}", callback_data="save_filters")]
     ]
     return InlineKeyboardMarkup(rows)
 
@@ -148,7 +148,7 @@ async def find_command(update: Update, context):
     else:
         return
     
-    # FIX #1: Check if user has profile setup (gender, region, country must be set)
+    # Check if user has profile setup (gender, region, country must be set)
     if not user or not user.get('gender') or not user.get('region') or not user.get('country'):
         from bot import load_locale
         lang = user.get('language', 'en') if user else 'en'
@@ -164,7 +164,6 @@ async def find_command(update: Update, context):
             sent = await update.message.reply_text(msg_text)
         
         # Now properly trigger profile setup as a command (this will start the ConversationHandler)
-        # Create a fake command update to trigger the profile conversation handler
         return await unified_profile_entry(update, context)
     
     lang = get_user_locale(user)
@@ -183,7 +182,7 @@ async def find_command(update: Update, context):
         await reply_func(f"⏳ {locale.get('already_searching', 'You are already searching for a partner...')}", reply_markup=kb)
         return
     
-    # FIX #2: Show only ONE message with cancel button
+    # Show only ONE message with cancel button
     kb = InlineKeyboardMarkup([[
         InlineKeyboardButton(f"❌ {locale.get('cancel_search', 'Cancel')}", callback_data="cancel_search")
     ]])
@@ -243,8 +242,6 @@ async def find_command(update: Update, context):
     else:
         # No match found, add to pool - keep the same message with cancel button
         add_to_pool(user_id)
-        # Message already shows "Searching for a partner..." with cancel button, so we're done!
-        # User will wait until someone else searches
 
 async def stop_search_callback(update: Update, context):
     query = update.callback_query
@@ -325,10 +322,10 @@ async def select_filter_cb(update: Update, context):
     data = query.data
     
     if data == "filter_gender":
+        # FIX #2: Only show Male and Female options (no Other)
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton(f"👨 {locale.get('gender_male', 'Male')}", callback_data="gender_male"), 
              InlineKeyboardButton(f"👩 {locale.get('gender_female', 'Female')}", callback_data="gender_female")],
-            [InlineKeyboardButton(f"⚧ {locale.get('gender_other', 'Other')}", callback_data="gender_other")],
             [InlineKeyboardButton(f"❌ {locale.get('gender_skip', 'Any')}", callback_data="gender_skip")],
             [InlineKeyboardButton(f"🔙 {locale.get('menu_back', 'Back')}", callback_data="menu_back")]
         ])
@@ -526,7 +523,7 @@ search_conv = ConversationHandler(
     ],
     states={
         SELECT_FILTER: [CallbackQueryHandler(select_filter_cb, pattern="^(filter_gender|filter_region|filter_language|save_filters|menu_back)$")],
-        SELECT_GENDER: [CallbackQueryHandler(select_filter_cb, pattern="^(gender_male|gender_female|gender_other|gender_skip|menu_back)$")],
+        SELECT_GENDER: [CallbackQueryHandler(select_filter_cb, pattern="^(gender_male|gender_female|gender_skip|menu_back)$")],
         SELECT_REGION: [CallbackQueryHandler(select_filter_cb, pattern="^(region_[^|]+|region_skip|menu_back)$")],
         SELECT_LANGUAGE: [CallbackQueryHandler(select_filter_cb, pattern="^(language_[^|]+|language_skip|menu_back)$")]
     },
