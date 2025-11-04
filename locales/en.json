@@ -81,5 +81,18 @@
     "premium_expired": "Your premium membership has expired.",
     "premium_expired_info": "To continue enjoying premium features, please renew your subscription.",
     "not_premium": "Not Premium",
-    "premium_until": "Premium until"
+    "premium_until": "Premium until",
+    "referral_program": "Referral Program",
+    "your_stats": "Your Stats",
+    "referrals": "Referrals",
+    "premium_earned": "Premium Days Earned",
+    "your_link": "Your Referral Link",
+    "how_it_works": "How it works",
+    "referral_step1": "Share your link with friends",
+    "referral_step2": "They join using your link",
+    "referral_step3": "You get 1 day of premium for each referral!",
+    "referral_unlimited": "Unlimited referrals = Unlimited premium!",
+    "referral_share_text": "Join me on AnonIndoChat! 🎉",
+    "share_link": "Share Link",
+    "referral_reward": "Congrats! Someone joined using your referral link. You got 1 day of premium!"
 }
