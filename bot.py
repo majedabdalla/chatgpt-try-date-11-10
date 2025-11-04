@@ -105,11 +105,13 @@ async def language_select_callback(update: Update, context):
     await update_user(query.from_user.id, {"language": lang})
     locale = load_locale(lang)
     
+    # FIX #1: Add Referral button to main menu
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton(f"👤 {locale.get('profile', 'Profile')}", callback_data="menu_profile")],
         [InlineKeyboardButton(f"🔍 {locale.get('find', 'Find Partner')}", callback_data="menu_find")],
         [InlineKeyboardButton(f"🔎 {locale.get('search', 'Advanced Search')}", callback_data="menu_search")],
         [InlineKeyboardButton(f"⚙️ {locale.get('filters', 'Filter Settings')}", callback_data="menu_filter")],
+        [InlineKeyboardButton(f"🎁 {locale.get('referral_program', 'Referral Program')}", callback_data="menu_referral")],
         [InlineKeyboardButton(f"⭐ {locale.get('upgrade', 'Upgrade to Premium')}", callback_data="menu_upgrade")]
     ])
     
@@ -127,11 +129,13 @@ async def show_main_menu(update, context, menu_text=None, reply_markup=None):
         lang = get_user_locale(user)
         locale = load_locale(lang)
         menu_text = f"🏠 {locale.get('main_menu', 'Main Menu:')}"
+        # FIX #1: Include referral button in default main menu
         reply_markup = InlineKeyboardMarkup([
             [InlineKeyboardButton(f"👤 {locale.get('profile', 'Profile')}", callback_data="menu_profile")],
             [InlineKeyboardButton(f"🔍 {locale.get('find', 'Find Partner')}", callback_data="menu_find")],
             [InlineKeyboardButton(f"🔎 {locale.get('search', 'Advanced Search')}", callback_data="menu_search")],
             [InlineKeyboardButton(f"⚙️ {locale.get('filters', 'Filter Settings')}", callback_data="menu_filter")],
+            [InlineKeyboardButton(f"🎁 {locale.get('referral_program', 'Referral Program')}", callback_data="menu_referral")],
             [InlineKeyboardButton(f"⭐ {locale.get('upgrade', 'Upgrade to Premium')}", callback_data="menu_upgrade")]
         ])
     try:
@@ -159,11 +163,71 @@ def is_true_admin(update: Update):
 async def main_menu(update: Update, context):
     await show_main_menu(update, context)
 
+# FIX #1: Add handler for referral menu button
+async def referral_menu_callback(update: Update, context):
+    """Handle the referral button click from main menu"""
+    query = update.callback_query
+    await query.answer()
+    
+    # Call the show_referral_info function but adapt it for callback
+    user_id = query.from_user.id
+    user = await get_user(user_id)
+    
+    if not user:
+        await query.edit_message_text("Please complete your profile first using /start")
+        return
+    
+    lang = get_user_locale(user)
+    locale = load_locale(lang)
+    
+    # Get bot username
+    bot_info = await context.bot.get_me()
+    bot_username = bot_info.username
+    
+    # Generate referral link
+    from handlers.referral import generate_referral_link
+    referral_link = await generate_referral_link(user_id, bot_username)
+    
+    # Get referral stats
+    referral_count = user.get("referral_count", 0)
+    total_premium_days = referral_count
+    
+    referral_text = (
+        f"🎁 *{locale.get('referral_program', 'Referral Program')}*\n"
+        f"━━━━━━━━━━━━━━━━\n\n"
+        f"📊 *{locale.get('your_stats', 'Your Stats')}*\n"
+        f"👥 {locale.get('referrals', 'Referrals')}: {referral_count}\n"
+        f"⭐ {locale.get('premium_earned', 'Premium Days Earned')}: {total_premium_days}\n\n"
+        f"🔗 *{locale.get('your_link', 'Your Referral Link')}*\n"
+        f"`{referral_link}`\n\n"
+        f"💡 *{locale.get('how_it_works', 'How it works')}*\n"
+        f"• {locale.get('referral_step1', 'Share your link with friends')}\n"
+        f"• {locale.get('referral_step2', 'They join using your link')}\n"
+        f"• {locale.get('referral_step3', 'You get 1 day of premium for each referral!')}\n\n"
+        f"🎉 {locale.get('referral_unlimited', 'Unlimited referrals = Unlimited premium!')}"
+    )
+    
+    # Create share button and back button
+    share_text = locale.get('referral_share_text', f'Join me on AnonIndoChat! 🎉')
+    share_url = f"https://t.me/share/url?url={referral_link}&text={share_text}"
+    
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton(f"📤 {locale.get('share_link', 'Share Link')}", url=share_url)],
+        [InlineKeyboardButton(f"🔙 {locale.get('menu_back', 'Back to Menu')}", callback_data="menu_back")]
+    ])
+    
+    await query.edit_message_text(
+        referral_text,
+        parse_mode='Markdown',
+        reply_markup=kb
+    )
+
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.bot_data["ADMIN_GROUP_ID"] = ADMIN_GROUP_ID
     app.bot_data["ADMIN_ID"] = ADMIN_ID
 
+    # FIX #2: Fixed gender callback pattern to be more flexible
     profile_conv = ConversationHandler(
         entry_points=[
             CommandHandler('profile', unified_profile_entry),
@@ -171,9 +235,9 @@ def main():
         ],
         states={
             PROFILE_MENU: [CallbackQueryHandler(profile_menu_cb, pattern="^(edit_profile|menu_back)$")],
-            ASK_GENDER: [CallbackQueryHandler(gender_cb, pattern="^gender_(male|female)$")],
-            ASK_REGION: [CallbackQueryHandler(region_cb, pattern="^region_.+$")],
-            ASK_COUNTRY: [CallbackQueryHandler(country_cb, pattern="^country_.+$")]
+            ASK_GENDER: [CallbackQueryHandler(gender_cb, pattern="^gender_")],  # Changed from exact match to prefix
+            ASK_REGION: [CallbackQueryHandler(region_cb, pattern="^region_")],
+            ASK_COUNTRY: [CallbackQueryHandler(country_cb, pattern="^country_")]
         },
         fallbacks=[],
         per_message=False
@@ -189,11 +253,12 @@ def main():
     app.add_handler(CommandHandler("upgrade", start_upgrade))
     app.add_handler(CommandHandler("report", report_partner))
     app.add_handler(CommandHandler("filters", open_filter_menu))
-    app.add_handler(CommandHandler("referral", show_referral_info))  # NEW
-    app.add_handler(CommandHandler("invite", show_referral_info))  # NEW - alias
+    app.add_handler(CommandHandler("referral", show_referral_info))
+    app.add_handler(CommandHandler("invite", show_referral_info))
 
     app.add_handler(CallbackQueryHandler(language_select_callback, pattern="^lang_"))
     app.add_handler(CallbackQueryHandler(menu_callback_handler, pattern="^(menu_find|menu_upgrade|menu_filter|menu_search|menu_back)$"))
+    app.add_handler(CallbackQueryHandler(referral_menu_callback, pattern="^menu_referral$"))  # FIX #1: Add referral handler
     
     app.add_handler(CallbackQueryHandler(stop_search_callback, pattern="^(stop_search|cancel_search)$"))
 
@@ -202,8 +267,8 @@ def main():
     app.add_handler(CommandHandler("unblock", admin_unblock, admin_filter))
     app.add_handler(CommandHandler("message", admin_message, admin_filter))
     app.add_handler(CommandHandler("stats", admin_stats, admin_filter))
-    app.add_handler(CommandHandler("export", admin_export, admin_filter))  # NEW
-    app.add_handler(CommandHandler("ad", admin_ad, admin_filter))  # NEW - Global announcement
+    app.add_handler(CommandHandler("export", admin_export, admin_filter))
+    app.add_handler(CommandHandler("ad", admin_ad, admin_filter))
     app.add_handler(CommandHandler("blockword", admin_blockword, admin_filter))
     app.add_handler(CommandHandler("unblockword", admin_unblockword, admin_filter))
     app.add_handler(CommandHandler("userinfo", admin_userinfo, admin_filter))
@@ -212,14 +277,13 @@ def main():
     app.add_handler(CommandHandler("setpremium", admin_setpremium, admin_filter))
     app.add_handler(CommandHandler("resetpremium", admin_resetpremium, admin_filter))
     app.add_handler(CommandHandler("adminroom", admin_adminroom, admin_filter))
-    app.add_handler(CommandHandler("checkreferrals", admin_check_referrals, admin_filter))  # NEW
+    app.add_handler(CommandHandler("checkreferrals", admin_check_referrals, admin_filter))
 
     app.add_handler(CallbackQueryHandler(admin_callback))
 
     app.add_handler(MessageHandler(~filters.COMMAND, route_message))
     app.add_error_handler(lambda update, context: logger.error(msg="Exception while handling an update:", exc_info=context.error))
 
-    # FIX #2: Pass bot instance to downgrade function for notifications
     async def expiry_job(context):
         await downgrade_expired_premium(context.bot)
     app.job_queue.run_repeating(expiry_job, interval=3600, first=10)
