@@ -77,5 +77,9 @@
     "region": "المنطقة",
     "country": "البلد",
     "language": "اللغة",
-    "gender": "الجنس"
+    "gender": "الجنس",
+    "premium_expired": "انتهت صلاحية عضويتك المميزة.",
+    "premium_expired_info": "لمواصلة الاستمتاع بالميزات المميزة، يرجى تجديد اشتراكك.",
+    "not_premium": "غير مميز",
+    "premium_until": "مميز حتى"
 }
