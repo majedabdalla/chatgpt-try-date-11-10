@@ -16,7 +16,8 @@ from handlers.chat import process_message
 from handlers.report import report_partner
 from handlers.admincmds import (
     admin_block, admin_unblock, admin_message, admin_stats, admin_blockword, admin_unblockword,
-    admin_userinfo, admin_roominfo, admin_viewhistory, admin_setpremium, admin_resetpremium, admin_adminroom
+    admin_userinfo, admin_roominfo, admin_viewhistory, admin_setpremium, admin_resetpremium, 
+    admin_adminroom, admin_ad, admin_export
 )
 from handlers.match import (
     find_command, search_conv, end_command, next_command, open_filter_menu,
@@ -35,7 +36,6 @@ LOCALE_DIR = os.path.join(os.path.dirname(__file__), "locales")
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# FIX #4: Removed duplicate emojis from LANGS
 LANGS = {
     "en": "🇬🇧 English",
     "ar": "🇸🇦 العربية", 
@@ -78,7 +78,6 @@ async def reply_translated(update, context, key, **kwargs):
     await update.message.reply_text(msg)
 
 async def start(update: Update, context):
-    # FIX #3: Changed MeetMate to AnonIndoChat
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton(locale, callback_data=f"lang_{code}")]
         for code, locale in LANGS.items()
@@ -102,7 +101,6 @@ async def language_select_callback(update: Update, context):
     await update_user(query.from_user.id, {"language": lang})
     locale = load_locale(lang)
     
-    # FIX #4: Removed duplicate emojis - locale strings now don't have emojis
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton(f"👤 {locale.get('profile', 'Profile')}", callback_data="menu_profile")],
         [InlineKeyboardButton(f"🔍 {locale.get('find', 'Find Partner')}", callback_data="menu_find")],
@@ -197,6 +195,8 @@ def main():
     app.add_handler(CommandHandler("unblock", admin_unblock, admin_filter))
     app.add_handler(CommandHandler("message", admin_message, admin_filter))
     app.add_handler(CommandHandler("stats", admin_stats, admin_filter))
+    app.add_handler(CommandHandler("export", admin_export, admin_filter))  # NEW
+    app.add_handler(CommandHandler("ad", admin_ad, admin_filter))  # NEW - Global announcement
     app.add_handler(CommandHandler("blockword", admin_blockword, admin_filter))
     app.add_handler(CommandHandler("unblockword", admin_unblockword, admin_filter))
     app.add_handler(CommandHandler("userinfo", admin_userinfo, admin_filter))
@@ -211,8 +211,9 @@ def main():
     app.add_handler(MessageHandler(~filters.COMMAND, route_message))
     app.add_error_handler(lambda update, context: logger.error(msg="Exception while handling an update:", exc_info=context.error))
 
+    # FIX #2: Pass bot instance to downgrade function for notifications
     async def expiry_job(context):
-        await downgrade_expired_premium()
+        await downgrade_expired_premium(context.bot)
     app.job_queue.run_repeating(expiry_job, interval=3600, first=10)
 
     logger.info("🚀 AnonIndoChat Bot started successfully!")
