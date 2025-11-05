@@ -94,5 +94,6 @@
     "referral_unlimited": "Unlimited referrals = Unlimited premium!",
     "referral_share_text": "Join me on AnonIndoChat! 🎉",
     "share_link": "Share Link",
-    "referral_reward": "Congrats! Someone joined using your referral link. You got 1 day of premium!"
+    "referral_reward": "Congrats! Someone joined using your referral link. You got 1 day of premium!",
+    "queue_waiting": "No matches right now. You are in the priority queue and will be matched as soon as someone matching your filters comes online!"
 }
