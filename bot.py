@@ -227,15 +227,16 @@ def main():
     app.bot_data["ADMIN_GROUP_ID"] = ADMIN_GROUP_ID
     app.bot_data["ADMIN_ID"] = ADMIN_ID
 
-    # FIX #2: Fixed gender callback pattern to be more flexible
+    # FIX: Add gender buttons as entry points so they work when triggered from find_command
     profile_conv = ConversationHandler(
         entry_points=[
             CommandHandler('profile', unified_profile_entry),
-            CallbackQueryHandler(unified_profile_entry, pattern="^menu_profile$")
+            CallbackQueryHandler(unified_profile_entry, pattern="^menu_profile$"),
+            CallbackQueryHandler(gender_cb, pattern="^gender_(male|female)$")  # NEW: Gender buttons as entry points
         ],
         states={
             PROFILE_MENU: [CallbackQueryHandler(profile_menu_cb, pattern="^(edit_profile|menu_back)$")],
-            ASK_GENDER: [CallbackQueryHandler(gender_cb, pattern="^gender_")],  # Changed from exact match to prefix
+            ASK_GENDER: [CallbackQueryHandler(gender_cb, pattern="^gender_")],
             ASK_REGION: [CallbackQueryHandler(region_cb, pattern="^region_")],
             ASK_COUNTRY: [CallbackQueryHandler(country_cb, pattern="^country_")]
         },
@@ -258,7 +259,7 @@ def main():
 
     app.add_handler(CallbackQueryHandler(language_select_callback, pattern="^lang_"))
     app.add_handler(CallbackQueryHandler(menu_callback_handler, pattern="^(menu_find|menu_upgrade|menu_filter|menu_search|menu_back)$"))
-    app.add_handler(CallbackQueryHandler(referral_menu_callback, pattern="^menu_referral$"))  # FIX #1: Add referral handler
+    app.add_handler(CallbackQueryHandler(referral_menu_callback, pattern="^menu_referral$"))
     
     app.add_handler(CallbackQueryHandler(stop_search_callback, pattern="^(stop_search|cancel_search)$"))
 
