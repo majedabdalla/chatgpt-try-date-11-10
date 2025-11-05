@@ -32,6 +32,17 @@ async def _lookup_user(identifier):
         return user
     return None
 
+async def _copy_message_to_user(context, to_chat_id, from_message):
+    """
+    Helper function to copy any type of message to a user
+    Returns True if successful, False otherwise
+    """
+    try:
+        await from_message.copy(chat_id=to_chat_id)
+        return True
+    except Exception as e:
+        return False
+
 async def admin_block(update: Update, context):
     if not _is_admin(update, context):
         await update.message.reply_text("Unauthorized.")
@@ -100,29 +111,11 @@ async def admin_resetpremium(update: Update, context):
     await update.message.reply_text(f"✅ User {user['user_id']} downgraded to normal user.")
 
 async def admin_message(update: Update, context):
-    if not _is_admin(update, context):
-        await update.message.reply_text("Unauthorized.")
-        return
-    if len(context.args) < 2:
-        await update.message.reply_text("Usage: /message <user_id or @username> <text>")
-        return
-    user_id_or_username = context.args[0]
-    text = " ".join(context.args[1:])
-    user = await _lookup_user(user_id_or_username)
-    if not user:
-        await update.message.reply_text("User not found.")
-        return
-    success = await send_admin_message(context.bot, user["user_id"], text)
-    if success:
-        await update.message.reply_text("✅ Message sent.")
-    else:
-        await update.message.reply_text("❌ Failed to send message.")
-
-async def admin_ad(update: Update, context):
     """
-    FIX #3: Global announcement feature
-    Usage: /ad <message text>
-    Supports Markdown formatting
+    Enhanced /message command that supports all message types
+    
+    Usage method 1: /message <user_id or @username> <text>
+    Usage method 2: Reply to any message with /message <user_id or @username>
     """
     if not _is_admin(update, context):
         await update.message.reply_text("Unauthorized.")
@@ -130,37 +123,123 @@ async def admin_ad(update: Update, context):
     
     if not context.args:
         await update.message.reply_text(
-            "📢 *Global Announcement*\n\n"
-            "Usage: `/ad <message>`\n\n"
-            "Example: `/ad 🎉 Welcome to our new features!`\n\n"
-            "The message supports Markdown formatting.",
-            parse_mode='Markdown'
+            "Usage:\n"
+            "1. /message <user_id or @username> <text>\n"
+            "2. Reply to any message with: /message <user_id or @username>"
         )
         return
     
-    announcement_text = " ".join(context.args)
+    identifier = context.args[0]
+    user = await _lookup_user(identifier)
     
-    # Add header to announcement
-    full_announcement = f"📢 *Announcement from Admin*\n\n{announcement_text}"
+    if not user:
+        await update.message.reply_text("User not found.")
+        return
     
-    # Confirm before sending
-    await update.message.reply_text(
-        f"📤 Sending announcement to all users:\n\n{full_announcement}\n\n⏳ Please wait...",
-        parse_mode='Markdown'
-    )
+    user_id = user["user_id"]
     
-    # Send to all users
-    success, failed, total = await send_global_announcement(context.bot, full_announcement)
+    # Check if this is a reply to a message
+    if update.message.reply_to_message:
+        # Method 2: Copy the replied message
+        success = await _copy_message_to_user(context, user_id, update.message.reply_to_message)
+        
+        if success:
+            await update.message.reply_text(f"✅ Message sent to user {user_id}.")
+        else:
+            await update.message.reply_text(f"❌ Failed to send message to user {user_id}.")
+    else:
+        # Method 1: Traditional text message
+        if len(context.args) < 2:
+            await update.message.reply_text("Please provide a message text or reply to a message.")
+            return
+        
+        text = " ".join(context.args[1:])
+        success = await send_admin_message(context.bot, user_id, text)
+        
+        if success:
+            await update.message.reply_text(f"✅ Message sent to user {user_id}.")
+        else:
+            await update.message.reply_text(f"❌ Failed to send message to user {user_id}.")
+
+async def admin_ad(update: Update, context):
+    """
+    Enhanced /ad command that supports all message types
     
-    # Report results
-    result_msg = (
-        f"✅ *Announcement Sent*\n\n"
-        f"Total Users: {total}\n"
-        f"✅ Successfully sent: {success}\n"
-        f"❌ Failed: {failed}\n"
-        f"Success Rate: {(success/total*100):.1f}%"
-    )
-    await update.message.reply_text(result_msg, parse_mode='Markdown')
+    Usage method 1: /ad <message text>
+    Usage method 2: Reply to any message with /ad
+    """
+    if not _is_admin(update, context):
+        await update.message.reply_text("Unauthorized.")
+        return
+    
+    # Check if this is a reply to a message
+    if update.message.reply_to_message:
+        # Method 2: Broadcast the replied message to all users
+        await update.message.reply_text(
+            "📤 Broadcasting message to all users...\n⏳ Please wait..."
+        )
+        
+        success_count = 0
+        fail_count = 0
+        total_users = 0
+        
+        async for user in db.users.find({}):
+            total_users += 1
+            user_id = user["user_id"]
+            
+            # Try to copy the message to each user
+            if await _copy_message_to_user(context, user_id, update.message.reply_to_message):
+                success_count += 1
+            else:
+                fail_count += 1
+        
+        # Report results
+        result_msg = (
+            f"✅ *Broadcast Complete*\n\n"
+            f"Total Users: {total_users}\n"
+            f"✅ Successfully sent: {success_count}\n"
+            f"❌ Failed: {fail_count}\n"
+            f"Success Rate: {(success_count/total_users*100):.1f}%"
+        )
+        await update.message.reply_text(result_msg, parse_mode='Markdown')
+        
+    else:
+        # Method 1: Traditional text announcement
+        if not context.args:
+            await update.message.reply_text(
+                "📢 *Global Announcement*\n\n"
+                "Usage:\n"
+                "1. `/ad <message text>` - Send text announcement\n"
+                "2. Reply to any message with `/ad` - Broadcast that message\n\n"
+                "Example: `/ad 🎉 Welcome to our new features!`\n\n"
+                "The message supports Markdown formatting.",
+                parse_mode='Markdown'
+            )
+            return
+        
+        announcement_text = " ".join(context.args)
+        
+        # Add header to announcement
+        full_announcement = f"📢 *Announcement from Admin*\n\n{announcement_text}"
+        
+        # Confirm before sending
+        await update.message.reply_text(
+            f"📤 Sending announcement to all users:\n\n{full_announcement}\n\n⏳ Please wait...",
+            parse_mode='Markdown'
+        )
+        
+        # Send to all users
+        success, failed, total = await send_global_announcement(context.bot, full_announcement)
+        
+        # Report results
+        result_msg = (
+            f"✅ *Announcement Sent*\n\n"
+            f"Total Users: {total}\n"
+            f"✅ Successfully sent: {success}\n"
+            f"❌ Failed: {failed}\n"
+            f"Success Rate: {(success/total*100):.1f}%"
+        )
+        await update.message.reply_text(result_msg, parse_mode='Markdown')
 
 async def admin_adminroom(update: Update, context):
     if not _is_admin(update, context):
