@@ -2,12 +2,12 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ConversationHandler, CallbackQueryHandler, CommandHandler
 from db import get_user, get_room, delete_room, update_user
 from rooms import add_to_pool, remove_from_pool, users_online, create_room, close_room
-from handlers.profile import unified_profile_entry
+from handlers.profile import unified_profile_entry, ASK_GENDER
 import random
 
 SELECT_FILTER, SELECT_GENDER, SELECT_REGION, SELECT_LANGUAGE = range(4)
 REGIONS = ['Africa', 'Europe', 'Asia', 'North America', 'South America', 'Oceania', 'Antarctica']
-GENDERS = ['male', 'female']  # FIX #2: Removed 'other' from filter options
+GENDERS = ['male', 'female']
 LANGUAGES = ['en', 'ar', 'hi', 'id']
 
 def get_user_locale(user):
@@ -50,7 +50,6 @@ def get_filter_menu(lang, context, filters):
     else:
         language_display = locale.get('gender_skip', 'Any')
     
-    # FIX #3: Main filter menu only has "Save & Back" button (no separate Back button)
     rows = [
         [InlineKeyboardButton(
             f"👤 {locale.get('gender', 'Gender')}: {gender_display}",
@@ -154,17 +153,37 @@ async def find_command(update: Update, context):
         lang = user.get('language', 'en') if user else 'en'
         locale = load_locale(lang)
         
+        # FIX: Set a flag to indicate we're coming from find command
+        context.user_data['from_find_command'] = True
+        
         # Send message asking to set up profile
         msg_text = f"📝 {locale.get('profile_setup_required', 'Please complete your profile first before you can start chatting!')}"
         
         if is_callback:
             await update.callback_query.answer()
-            sent = await update.callback_query.message.reply_text(msg_text)
+            await update.callback_query.edit_message_text(msg_text)
         else:
-            sent = await update.message.reply_text(msg_text)
+            await update.message.reply_text(msg_text)
         
-        # Now properly trigger profile setup as a command (this will start the ConversationHandler)
-        return await unified_profile_entry(update, context)
+        # Now properly show gender selection buttons
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton(locale.get('gender_male', 'Male'), callback_data='gender_male'),
+             InlineKeyboardButton(locale.get('gender_female', 'Female'), callback_data='gender_female')]
+        ])
+        
+        if is_callback:
+            await update.callback_query.message.reply_text(
+                locale.get('ask_gender', 'Select your gender:'), 
+                reply_markup=kb
+            )
+        else:
+            await update.message.reply_text(
+                locale.get('ask_gender', 'Select your gender:'), 
+                reply_markup=kb
+            )
+        
+        # Return ASK_GENDER state to enter the profile ConversationHandler
+        return ASK_GENDER
     
     lang = get_user_locale(user)
     from bot import load_locale
@@ -322,7 +341,6 @@ async def select_filter_cb(update: Update, context):
     data = query.data
     
     if data == "filter_gender":
-        # FIX #2: Only show Male and Female options (no Other)
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton(f"👨 {locale.get('gender_male', 'Male')}", callback_data="gender_male"), 
              InlineKeyboardButton(f"👩 {locale.get('gender_female', 'Female')}", callback_data="gender_female")],
