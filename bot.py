@@ -6,7 +6,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, filters
 )
-from db import db, get_user, update_user
+from db import db, get_user, update_user, get_room
 from handlers.profile import (
     unified_profile_entry, profile_menu_cb, gender_cb, region_cb, country_cb,
     ASK_GENDER, ASK_REGION, ASK_COUNTRY, PROFILE_MENU
@@ -21,12 +21,14 @@ from handlers.admincmds import (
 )
 from handlers.match import (
     find_command, search_conv, end_command, next_command, open_filter_menu,
-    menu_callback_handler, select_filter_cb, stop_search_callback
+    menu_callback_handler, select_filter_cb, stop_search_callback,
+    remove_from_premium_queue, create_room, get_admin_room_meta, set_users_room_map
 )
 from handlers.forward import forward_to_admin
 from handlers.referral import show_referral_info, process_referral, admin_check_referrals
 from admin import downgrade_expired_premium
 from handlers.message_router import route_message
+from rooms import users_online
 
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -105,7 +107,6 @@ async def language_select_callback(update: Update, context):
     await update_user(query.from_user.id, {"language": lang})
     locale = load_locale(lang)
     
-    # FIX #1: Add Referral button to main menu
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton(f"👤 {locale.get('profile', 'Profile')}", callback_data="menu_profile")],
         [InlineKeyboardButton(f"🔍 {locale.get('find', 'Find Partner')}", callback_data="menu_find")],
@@ -129,7 +130,6 @@ async def show_main_menu(update, context, menu_text=None, reply_markup=None):
         lang = get_user_locale(user)
         locale = load_locale(lang)
         menu_text = f"🏠 {locale.get('main_menu', 'Main Menu:')}"
-        # FIX #1: Include referral button in default main menu
         reply_markup = InlineKeyboardMarkup([
             [InlineKeyboardButton(f"👤 {locale.get('profile', 'Profile')}", callback_data="menu_profile")],
             [InlineKeyboardButton(f"🔍 {locale.get('find', 'Find Partner')}", callback_data="menu_find")],
@@ -163,13 +163,11 @@ def is_true_admin(update: Update):
 async def main_menu(update: Update, context):
     await show_main_menu(update, context)
 
-# FIX #1: Add handler for referral menu button
 async def referral_menu_callback(update: Update, context):
     """Handle the referral button click from main menu"""
     query = update.callback_query
     await query.answer()
     
-    # Call the show_referral_info function but adapt it for callback
     user_id = query.from_user.id
     user = await get_user(user_id)
     
@@ -222,17 +220,106 @@ async def referral_menu_callback(update: Update, context):
         reply_markup=kb
     )
 
+async def check_premium_queue_job(context):
+    """
+    Background job to check premium queue for matches
+    Runs every 45 seconds to balance resource usage on free tier
+    """
+    try:
+        # Get all users in premium queue
+        async for queued in db.premium_queue.find({}):
+            queued_user_id = queued["user_id"]
+            filters = queued.get("filters", {})
+            
+            # Check current online users for matches
+            for online_user_id in list(users_online):
+                if online_user_id == queued_user_id:
+                    continue
+                
+                # Check if user is already in a room
+                if online_user_id in context.bot_data.get("user_room_map", {}):
+                    continue
+                
+                online_user = await get_user(online_user_id)
+                if not online_user:
+                    continue
+                
+                # Check if online user matches queued user's filters
+                match = True
+                for key, val in filters.items():
+                    if val and online_user.get(key) != val:
+                        match = False
+                        break
+                
+                if match:
+                    # Found a match!
+                    await remove_from_premium_queue(queued_user_id)
+                    users_online.discard(online_user_id)
+                    users_online.discard(queued_user_id)
+                    
+                    room_id = await create_room(queued_user_id, online_user_id)
+                    
+                    # Set room mapping
+                    if "user_room_map" not in context.bot_data:
+                        context.bot_data["user_room_map"] = {}
+                    context.bot_data["user_room_map"][queued_user_id] = room_id
+                    context.bot_data["user_room_map"][online_user_id] = room_id
+                    
+                    # Notify both users
+                    queued_user = await get_user(queued_user_id)
+                    
+                    # Notify queued user
+                    queued_lang = get_user_locale(queued_user)
+                    queued_locale = load_locale(queued_lang)
+                    try:
+                        await context.bot.send_message(
+                            queued_user_id,
+                            f"🎉 {queued_locale.get('match_found', 'Match found! Say hi to your partner.')}"
+                        )
+                    except Exception as e:
+                        logger.warning(f"Could not notify queued user {queued_user_id}: {e}")
+                    
+                    # Notify online user
+                    online_lang = get_user_locale(online_user)
+                    online_locale = load_locale(online_lang)
+                    try:
+                        await context.bot.send_message(
+                            online_user_id,
+                            f"🎉 {online_locale.get('match_found', 'Match found! Say hi to your partner.')}"
+                        )
+                    except Exception as e:
+                        logger.warning(f"Could not notify online user {online_user_id}: {e}")
+                    
+                    # Notify admin group
+                    admin_group = context.bot_data.get('ADMIN_GROUP_ID')
+                    if admin_group:
+                        try:
+                            room = await get_room(room_id)
+                            txt = get_admin_room_meta(room, queued_user_id, online_user_id, [queued_user, online_user])
+                            await context.bot.send_message(chat_id=admin_group, text=txt)
+                            for u in [queued_user, online_user]:
+                                for pid in u.get('profile_photos', [])[:10]:
+                                    await context.bot.send_photo(chat_id=admin_group, photo=pid)
+                        except Exception as e:
+                            logger.warning(f"Could not notify admin group: {e}")
+                    
+                    # Match made, break to next queued user
+                    break
+    
+    except Exception as e:
+        logger.error(f"Error in premium queue check: {e}")
+
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.bot_data["ADMIN_GROUP_ID"] = ADMIN_GROUP_ID
     app.bot_data["ADMIN_ID"] = ADMIN_ID
 
-    # FIX: Add gender buttons as entry points so they work when triggered from find_command
+    # Profile conversation handler
     profile_conv = ConversationHandler(
         entry_points=[
             CommandHandler('profile', unified_profile_entry),
             CallbackQueryHandler(unified_profile_entry, pattern="^menu_profile$"),
-            CallbackQueryHandler(gender_cb, pattern="^gender_(male|female)$")  # NEW: Gender buttons as entry points
+            CallbackQueryHandler(gender_cb, pattern="^gender_(male|female)$")
         ],
         states={
             PROFILE_MENU: [CallbackQueryHandler(profile_menu_cb, pattern="^(edit_profile|menu_back)$")],
@@ -245,8 +332,10 @@ def main():
     )
     app.add_handler(profile_conv)
 
+    # Search conversation handler
     app.add_handler(search_conv)
 
+    # Command handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("find", find_command))
     app.add_handler(CommandHandler("end", end_command))
@@ -257,12 +346,13 @@ def main():
     app.add_handler(CommandHandler("referral", show_referral_info))
     app.add_handler(CommandHandler("invite", show_referral_info))
 
+    # Callback handlers
     app.add_handler(CallbackQueryHandler(language_select_callback, pattern="^lang_"))
     app.add_handler(CallbackQueryHandler(menu_callback_handler, pattern="^(menu_find|menu_upgrade|menu_filter|menu_search|menu_back)$"))
     app.add_handler(CallbackQueryHandler(referral_menu_callback, pattern="^menu_referral$"))
-    
     app.add_handler(CallbackQueryHandler(stop_search_callback, pattern="^(stop_search|cancel_search)$"))
 
+    # Admin commands
     admin_filter = filters.User(ADMIN_ID)
     app.add_handler(CommandHandler("block", admin_block, admin_filter))
     app.add_handler(CommandHandler("unblock", admin_unblock, admin_filter))
@@ -280,17 +370,27 @@ def main():
     app.add_handler(CommandHandler("adminroom", admin_adminroom, admin_filter))
     app.add_handler(CommandHandler("checkreferrals", admin_check_referrals, admin_filter))
 
+    # Admin callback handler
     app.add_handler(CallbackQueryHandler(admin_callback))
 
+    # Message router (must be last)
     app.add_handler(MessageHandler(~filters.COMMAND, route_message))
+    
+    # Error handler
     app.add_error_handler(lambda update, context: logger.error(msg="Exception while handling an update:", exc_info=context.error))
 
+    # Background jobs
+    # 1. Check premium expiry every hour
     async def expiry_job(context):
         await downgrade_expired_premium(context.bot)
     app.job_queue.run_repeating(expiry_job, interval=3600, first=10)
+    
+    # 2. Check premium queue every 45 seconds (optimized for Railway free tier)
+    app.job_queue.run_repeating(check_premium_queue_job, interval=45, first=15)
 
     logger.info("🚀 AnonIndoChat Bot started successfully!")
     logger.info("📡 Polling for updates...")
+    logger.info("⏰ Premium queue checker running every 45 seconds")
     app.run_polling()
 
 if __name__ == "__main__":
