@@ -578,7 +578,8 @@ async def do_search(update: Update, context):
         # No immediate match - add to premium queue and wait
         await add_to_premium_queue(user_id, filters)
         await query.edit_message_text(
-            f"⏳ {locale.get('queue_waiting', 'No matches right now. You are in the priority queue and will be matched as soon as someone matching your filters comes online!')}\n\n",
+            f"⏳ {locale.get('queue_waiting', 'No matches right now. You are in the priority queue and will be matched as soon as someone matching your filters comes online!')}\n\n"
+            f"💡 We'll notify you when a match is found!",
             reply_markup=kb
         )
         return ConversationHandler.END
