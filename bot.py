@@ -104,7 +104,14 @@ async def language_select_callback(update: Update, context):
     query = update.callback_query
     await query.answer()
     lang = query.data.split("_", 1)[1]
-    await update_user(query.from_user.id, {"language": lang})
+    
+    # FIX: Capture username and name when language is selected
+    await update_user(query.from_user.id, {
+        "language": lang,
+        "username": query.from_user.username or "",
+        "name": query.from_user.full_name or query.from_user.first_name or ""
+    })
+    
     locale = load_locale(lang)
     
     kb = InlineKeyboardMarkup([
