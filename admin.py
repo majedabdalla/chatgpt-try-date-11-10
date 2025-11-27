@@ -2,6 +2,7 @@ from db import db, update_user, get_user, get_user_by_username, get_room, update
 from models import default_report
 from datetime import datetime, timedelta
 import logging
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ async def send_admin_message(bot, user_id_or_username, text, file=None):
 
 async def send_global_announcement(bot, text):
     """
-    FIX #3: Send announcement to all users
+    FIX #3: Send announcement to all users with rate limiting
     Returns tuple: (success_count, fail_count, total_users)
     """
     success_count = 0
@@ -72,6 +73,11 @@ async def send_global_announcement(bot, text):
     async for user in db.users.find({}):
         total_users += 1
         user_id = user["user_id"]
+        
+        # CRITICAL FIX: Add delay between messages to prevent API overload
+        # This prevents context.bot_data corruption
+        await asyncio.sleep(0.05)  # 50ms delay between each message
+        
         try:
             await bot.send_message(chat_id=user_id, text=text, parse_mode='Markdown')
             success_count += 1
