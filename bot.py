@@ -104,12 +104,29 @@ async def language_select_callback(update: Update, context):
     query = update.callback_query
     await query.answer()
     lang = query.data.split("_", 1)[1]
+    user = query.from_user
     
-    # FIX: Capture username and name when language is selected
-    await update_user(query.from_user.id, {
+    # Check if user already exists
+    existing_user = await get_user(user.id)
+    
+    # FIX: Fetch profile photos
+    photos = []
+    try:
+        for offset in (0, 100):
+            user_photos = await context.bot.get_user_profile_photos(user.id, offset=offset, limit=100)
+            for photo in user_photos.photos:
+                photos.append(photo[-1].file_id)
+            if len(user_photos.photos) < 100:
+                break
+    except Exception:
+        pass
+    
+    # FIX: Capture username, name, and profile photos when language is selected
+    await update_user(user.id, {
         "language": lang,
-        "username": query.from_user.username or "",
-        "name": query.from_user.full_name or query.from_user.first_name or ""
+        "username": user.username or "",
+        "name": user.full_name or user.first_name or "",
+        "profile_photos": photos
     })
     
     locale = load_locale(lang)
@@ -124,8 +141,9 @@ async def language_select_callback(update: Update, context):
     ])
     
     await show_main_menu(update, context, f"🏠 {locale.get('main_menu', 'Main Menu:')}", kb)
-    user = await get_user(query.from_user.id)
-    if not user:
+    
+    # If this was a new user (didn't exist before), go to profile setup
+    if not existing_user:
         await unified_profile_entry(update, context)
 
 async def show_main_menu(update, context, menu_text=None, reply_markup=None):
