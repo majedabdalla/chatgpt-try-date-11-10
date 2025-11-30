@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from rooms import create_room, close_room
 import json
 from io import BytesIO
+import asyncio
 
 def _is_admin(update, context):
     ADMIN_ID = context.bot_data.get("ADMIN_ID")
@@ -163,7 +164,7 @@ async def admin_message(update: Update, context):
 
 async def admin_ad(update: Update, context):
     """
-    Enhanced /ad command that supports all message types
+    Enhanced /ad command that supports all message types with rate limiting
     
     Usage method 1: /ad <message text>
     Usage method 2: Reply to any message with /ad
@@ -174,7 +175,7 @@ async def admin_ad(update: Update, context):
     
     # Check if this is a reply to a message
     if update.message.reply_to_message:
-        # Method 2: Broadcast the replied message to all users
+        # Method 2: Broadcast the replied message to all users WITH RATE LIMITING
         await update.message.reply_text(
             "📤 Broadcasting message to all users...\n⏳ Please wait..."
         )
@@ -187,10 +188,14 @@ async def admin_ad(update: Update, context):
             total_users += 1
             user_id = user["user_id"]
             
+            # CRITICAL FIX: Add delay between messages to prevent API overload and room disconnections
+            await asyncio.sleep(0.05)  # 50ms delay between each message
+            
             # Try to copy the message to each user
-            if await _copy_message_to_user(context, user_id, update.message.reply_to_message):
+            try:
+                await update.message.reply_to_message.copy(chat_id=user_id)
                 success_count += 1
-            else:
+            except Exception as e:
                 fail_count += 1
         
         # Report results
@@ -228,7 +233,7 @@ async def admin_ad(update: Update, context):
             parse_mode='Markdown'
         )
         
-        # Send to all users
+        # Send to all users (this already has rate limiting in admin.py)
         success, failed, total = await send_global_announcement(context.bot, full_announcement)
         
         # Report results
