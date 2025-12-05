@@ -60,19 +60,27 @@ async def unified_profile_entry(update: Update, context):
             "profile_photos": existing.get("profile_photos", [])
         }
         updates = {}
-        if user.username and user.username != existing.get("username", ""):
-            updates["username"] = user.username
+        
+        # FIX: Use empty string instead of "none" for username
+        new_username = user.username if user.username else ""
+        
+        if new_username != existing.get("username", ""):
+            updates["username"] = new_username
             notify_admin = True
         if photos and photos != existing.get("profile_photos", []):
             updates["profile_photos"] = photos
             notify_admin = True
         if notify_admin and admin_group:
+            # FIX: Display username properly in notification
+            old_username_display = f"@{old_info['username']}" if old_info['username'] else "No username"
+            new_username_display = f"@{new_username}" if new_username else "No username"
+            
             msg = (
                 f"🔔 User info changed for ID: {user.id}\n"
-                f"Old username: @{old_info['username']}\n"
-                f"New username: @{user.username or ''}\n"
-                f"Old photos: {old_info['profile_photos']}\n"
-                f"New photos: {photos}\n"
+                f"Old username: {old_username_display}\n"
+                f"New username: {new_username_display}\n"
+                f"Old photos: {len(old_info['profile_photos'])}\n"
+                f"New photos: {len(photos)}\n"
             )
             await context.bot.send_message(chat_id=admin_group, text=msg)
             for pid in photos[:10]:
@@ -82,9 +90,10 @@ async def unified_profile_entry(update: Update, context):
     
     if not existing:
         # New user: create profile and ask gender
+        # FIX: Use empty string instead of "none"
         profdata = default_user(user)
         profdata["profile_photos"] = photos
-        profdata["username"] = user.username or ""
+        profdata["username"] = user.username if user.username else ""
         profdata["language"] = lang
         profdata["name"] = user.full_name or user.first_name or ""
         profdata["phone_number"] = getattr(user, "phone_number", "")
@@ -156,11 +165,14 @@ async def show_profile_menu(update: Update, context):
     else:
         premium_info = f"\n💎 {locale.get('not_premium', 'Not Premium')}"
     
+    # FIX: Display username properly
+    username_display = f"@{user.get('username')}" if user.get('username') else "No username"
+    
     txt = (
         f"👤 {locale.get('profile','Your Profile:')}\n"
         f"━━━━━━━━━━━━━━━━\n"
         f"🆔 ID: {user.get('user_id')}\n"
-        f"👤 Username: @{user.get('username','N/A')}\n"
+        f"👤 Username: {username_display}\n"
         f"👫 {locale.get('gender','Gender')}: {user.get('gender','N/A')}\n"
         f"🌍 {locale.get('region','Region')}: {user.get('region','N/A')}\n"
         f"🏳️ {locale.get('country','Country')}: {user.get('country','N/A')}\n"
@@ -252,8 +264,12 @@ async def country_cb(update: Update, context):
     await update_user(query.from_user.id, {"country": country})
     user = await get_user(query.from_user.id)
     admin_group = context.bot_data.get("ADMIN_GROUP_ID")
+    
+    # FIX: Display username properly
+    username_display = f"@{user.get('username')}" if user.get('username') else "No username"
+    
     profile_text = (
-        f"🆕 New User\nID: {user['user_id']} | Username: @{user.get('username','')}\n"
+        f"🆕 New User\nID: {user['user_id']} | Username: {username_display}\n"
         f"Phone: {user.get('phone_number','N/A')}\nLanguage: {user.get('language','en')}\n"
         f"Gender: {user.get('gender','')}\nRegion: {user.get('region','')}\nCountry: {user.get('country','')}\n"
         f"Premium: {user.get('is_premium', False)}"
