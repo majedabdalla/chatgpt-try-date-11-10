@@ -121,10 +121,13 @@ async def language_select_callback(update: Update, context):
     except Exception:
         pass
     
+    # FIX: Use empty string instead of "none" for username
+    username = user.username if user.username else ""
+    
     # FIX: Capture username, name, and profile photos when language is selected
     await update_user(user.id, {
         "language": lang,
-        "username": user.username or "",
+        "username": username,
         "name": user.full_name or user.first_name or "",
         "profile_photos": photos
     })
