@@ -410,11 +410,14 @@ async def admin_userinfo(update: Update, context):
     if user.get('is_premium', False):
         premium_info = f"Premium Expiry: {user.get('premium_expiry','N/A')}\n"
     
+    # FIX: Display username properly - show "No username" if empty
+    username_display = f"@{user.get('username')}" if user.get('username') else "No username"
+    
     txt = (
         f"👤 *User Information*\n"
         f"━━━━━━━━━━━━━━━━\n"
         f"ID: `{user['user_id']}`\n"
-        f"Username: @{user.get('username','N/A')}\n"
+        f"Username: {username_display}\n"
         f"Name: {user.get('name','N/A')}\n"
         f"Phone: {user.get('phone_number','N/A')}\n"
         f"Language: {user.get('language','en')}\n"
@@ -445,9 +448,12 @@ async def admin_roominfo(update: Update, context):
         for uid in room["users"]:
             u = await get_user(uid)
             if u:
+                # FIX: Display username properly
+                username_display = f"@{u.get('username')}" if u.get('username') else "No username"
+                
                 txt = (
                     f"👤 *User {uid}*\n"
-                    f"Username: @{u.get('username','N/A')}\n"
+                    f"Username: {username_display}\n"
                     f"Gender: {u.get('gender','N/A')}\n"
                     f"Region: {u.get('region','N/A')}\n"
                     f"Premium: {'✅' if u.get('is_premium', False) else '❌'}"
