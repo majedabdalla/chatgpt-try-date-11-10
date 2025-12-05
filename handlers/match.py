@@ -3,8 +3,12 @@ from telegram.ext import ConversationHandler, CallbackQueryHandler, CommandHandl
 from db import get_user, get_room, delete_room, update_user, db
 from rooms import add_to_pool, remove_from_pool, users_online, create_room, close_room
 from handlers.profile import unified_profile_entry, ASK_GENDER
+from helpers import update_user_profile_info
 import random
 from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 SELECT_FILTER, SELECT_GENDER, SELECT_REGION, SELECT_LANGUAGE = range(4)
 REGIONS = ['Africa', 'Europe', 'Asia', 'North America', 'South America', 'Oceania', 'Antarctica']
@@ -125,8 +129,11 @@ async def remove_users_room_map(context, user1, user2=None):
 
 def get_admin_room_meta(room, user1, user2, users_data):
     def meta(u):
+        # FIX: Display username properly
+        username_display = f"@{u.get('username')}" if u.get('username') else "No username"
+        
         return (
-            f"ID: {u.get('user_id')} | Username: @{u.get('username','')} | Phone: {u.get('phone_number','N/A')}\n"
+            f"ID: {u.get('user_id')} | Username: {username_display} | Phone: {u.get('phone_number','N/A')}\n"
             f"Language: {u.get('language','en')}, Gender: {u.get('gender','')}, Region: {u.get('region','')}, Premium: {u.get('is_premium', False)}"
         )
     txt = f"🆕 New Room Created\nRoomID: {room['room_id']}\n" \
@@ -177,6 +184,13 @@ async def check_premium_queue_for_match(user_id):
 
 async def find_command(update: Update, context):
     user_id = update.effective_user.id
+    
+    # FIX: Auto-update user profile before searching
+    try:
+        await update_user_profile_info(user_id, context)
+    except Exception as e:
+        logger.warning(f"Could not update profile for user {user_id}: {e}")
+    
     user = await get_user(user_id)
     
     # Get proper reply function
@@ -504,6 +518,13 @@ async def do_search(update: Update, context):
     """FIX #2: Advanced search with queue waiting"""
     query = update.callback_query
     user_id = query.from_user.id
+    
+    # FIX: Auto-update user profile before searching
+    try:
+        await update_user_profile_info(user_id, context)
+    except Exception as e:
+        logger.warning(f"Could not update profile for user {user_id}: {e}")
+    
     user = await get_user(user_id)
     lang = get_user_locale(user)
     from bot import load_locale
