@@ -41,9 +41,12 @@ async def route_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         else:
             if ADMIN_GROUP_ID:
+                # FIX: Display username properly
+                username_display = f"@{user.get('username')}" if user and user.get('username') else "No username"
+                
                 await context.bot.send_message(
                     chat_id=ADMIN_GROUP_ID,
-                    text=f"#spam User {user_id} (@{user.get('username','')}) sent forbidden links or bot usernames 3 times. Please consider blocking."
+                    text=f"#spam User {user_id} ({username_display}) sent forbidden links or bot usernames 3 times. Please consider blocking."
                 )
             await message.reply_text(locale.get("policy_blocked", "You have violated the bot policy multiple times. Admin has been notified."))
             return
