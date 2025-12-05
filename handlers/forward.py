@@ -5,7 +5,9 @@ from db import get_room, get_user
 async def forward_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = user.id
-    username = user.username or "none"
+    # FIX: Display username properly
+    username = f"@{user.username}" if user.username else "No username"
+    
     room_id = context.bot_data.get("user_room_map", {}).get(user_id, 0)
     admin_group_id = context.bot_data.get("ADMIN_GROUP_ID")
 
@@ -17,9 +19,12 @@ async def forward_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         receiver_id = receiver_id[0] if receiver_id else None
     receiver = await get_user(receiver_id) if receiver_id else None
 
-    header = f"📢 Room #{room_id}\n👤 Sender: {user_id} (username: @{username}, phone: {getattr(user, 'phone_number', 'N/A')})"
+    # FIX: Display receiver username properly
+    receiver_username = f"@{receiver.get('username')}" if receiver and receiver.get('username') else "No username"
+
+    header = f"📢 Room #{room_id}\n👤 Sender: {user_id} (username: {username}, phone: {getattr(user, 'phone_number', 'N/A')})"
     if receiver:
-        header += f"\n👥 Receiver: {receiver['user_id']} (username: @{receiver.get('username','')}, phone: {receiver.get('phone_number','N/A')})"
+        header += f"\n👥 Receiver: {receiver['user_id']} (username: {receiver_username}, phone: {receiver.get('phone_number','N/A')})"
     header += f"\nRoom Created: {room['created_at'] if room else 'N/A'}\n"
 
     msg = None
