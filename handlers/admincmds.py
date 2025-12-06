@@ -264,6 +264,152 @@ async def admin_adminroom(update: Update, context):
     context.bot_data.setdefault("user_room_map", {})[user["user_id"]] = room_id
     await update.message.reply_text(f"✅ Private room with user {user['user_id']} created. Now chat as usual. Use /end to leave.")
 
+async def admin_linkusers(update: Update, context):
+    """
+    NEW FEATURE: Secretly link two users together in a room
+    The users will think they were matched normally - they won't know admin linked them
+    
+    Usage: /linkusers <user1_id or @username1> <user2_id or @username2>
+    """
+    if not _is_admin(update, context):
+        await update.message.reply_text("Unauthorized.")
+        return
+    
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "Usage: /linkusers <user1_id or @username1> <user2_id or @username2>\n\n"
+            "Example: /linkusers 123456789 @johndoe\n"
+            "This will secretly match the two users together."
+        )
+        return
+    
+    identifier1 = context.args[0]
+    identifier2 = context.args[1]
+    
+    # Lookup both users
+    user1 = await _lookup_user(identifier1)
+    user2 = await _lookup_user(identifier2)
+    
+    if not user1:
+        await update.message.reply_text(f"❌ User 1 not found: {identifier1}")
+        return
+    
+    if not user2:
+        await update.message.reply_text(f"❌ User 2 not found: {identifier2}")
+        return
+    
+    user1_id = user1["user_id"]
+    user2_id = user2["user_id"]
+    
+    # Check if users are the same
+    if user1_id == user2_id:
+        await update.message.reply_text("❌ Cannot link a user with themselves.")
+        return
+    
+    # Check if either user is already in a room
+    user_room_map = context.bot_data.get("user_room_map", {})
+    if user1_id in user_room_map:
+        await update.message.reply_text(f"❌ User {user1_id} is already in a chat room.")
+        return
+    
+    if user2_id in user_room_map:
+        await update.message.reply_text(f"❌ User {user2_id} is already in a chat room.")
+        return
+    
+    # Remove users from waiting pool/queue if they're there
+    from rooms import users_online, remove_from_pool
+    from handlers.match import remove_from_premium_queue
+    
+    if user1_id in users_online:
+        remove_from_pool(user1_id)
+    if user2_id in users_online:
+        remove_from_pool(user2_id)
+    
+    # Remove from premium queue if present
+    await remove_from_premium_queue(user1_id)
+    await remove_from_premium_queue(user2_id)
+    
+    # Create room between the two users
+    room_id = await create_room(user1_id, user2_id)
+    
+    # Set room mapping
+    if "user_room_map" not in context.bot_data:
+        context.bot_data["user_room_map"] = {}
+    context.bot_data["user_room_map"][user1_id] = room_id
+    context.bot_data["user_room_map"][user2_id] = room_id
+    
+    # Set in application user_data if available
+    if hasattr(context, "application"):
+        context.application.user_data[user1_id]["room_id"] = room_id
+        context.application.user_data[user2_id]["room_id"] = room_id
+    
+    # Get user locales
+    from bot import load_locale
+    
+    def get_user_locale(user):
+        lang = "en"
+        if user:
+            dbuser = user if isinstance(user, dict) else None
+            if dbuser and dbuser.get("language"):
+                lang = dbuser["language"]
+        return lang
+    
+    user1_lang = get_user_locale(user1)
+    user2_lang = get_user_locale(user2)
+    
+    locale1 = load_locale(user1_lang)
+    locale2 = load_locale(user2_lang)
+    
+    # Notify both users as if they were matched normally
+    try:
+        await context.bot.send_message(
+            chat_id=user1_id,
+            text=f"🎉 {locale1.get('match_found', 'Match found! Say hi to your partner.')}"
+        )
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ Could not notify user {user1_id}: {e}")
+    
+    try:
+        await context.bot.send_message(
+            chat_id=user2_id,
+            text=f"🎉 {locale2.get('match_found', 'Match found! Say hi to your partner.')}"
+        )
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ Could not notify user {user2_id}: {e}")
+    
+    # Notify admin group with room details
+    admin_group = context.bot_data.get('ADMIN_GROUP_ID')
+    if admin_group:
+        from handlers.match import get_admin_room_meta
+        try:
+            room = await get_room(room_id)
+            txt = f"🔗 Admin Linked Users\n" + get_admin_room_meta(room, user1_id, user2_id, [user1, user2])
+            await context.bot.send_message(chat_id=admin_group, text=txt)
+            
+            # Send profile photos
+            for u in [user1, user2]:
+                for pid in u.get('profile_photos', [])[:5]:
+                    try:
+                        await context.bot.send_photo(chat_id=admin_group, photo=pid)
+                    except:
+                        pass
+        except Exception as e:
+            pass
+    
+    # Confirm to admin
+    username1 = f"@{user1.get('username')}" if user1.get('username') else f"ID:{user1_id}"
+    username2 = f"@{user2.get('username')}" if user2.get('username') else f"ID:{user2_id}"
+    
+    await update.message.reply_text(
+        f"✅ *Successfully linked users!*\n\n"
+        f"👤 User 1: {username1} (ID: {user1_id})\n"
+        f"👤 User 2: {username2} (ID: {user2_id})\n"
+        f"🆔 Room ID: `{room_id}`\n\n"
+        f"Both users have been notified of their match.\n"
+        f"They don't know you linked them - it appears as a normal match.",
+        parse_mode='Markdown'
+    )
+
 async def admin_stats(update: Update, context):
     """
     FIX #4: Improved stats with detailed information
