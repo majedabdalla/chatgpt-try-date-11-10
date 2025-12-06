@@ -17,7 +17,7 @@ from handlers.report import report_partner
 from handlers.admincmds import (
     admin_block, admin_unblock, admin_message, admin_stats, admin_blockword, admin_unblockword,
     admin_userinfo, admin_roominfo, admin_viewhistory, admin_setpremium, admin_resetpremium, 
-    admin_adminroom, admin_ad, admin_export
+    admin_adminroom, admin_ad, admin_export, admin_linkusers
 )
 from handlers.match import (
     find_command, search_conv, end_command, next_command, open_filter_menu,
@@ -396,6 +396,7 @@ def main():
     app.add_handler(CommandHandler("setpremium", admin_setpremium, admin_filter))
     app.add_handler(CommandHandler("resetpremium", admin_resetpremium, admin_filter))
     app.add_handler(CommandHandler("adminroom", admin_adminroom, admin_filter))
+    app.add_handler(CommandHandler("linkusers", admin_linkusers, admin_filter))
     app.add_handler(CommandHandler("checkreferrals", admin_check_referrals, admin_filter))
 
     # Admin callback handler
