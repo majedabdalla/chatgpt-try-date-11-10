@@ -7,6 +7,9 @@ from rooms import create_room, close_room
 import json
 from io import BytesIO
 import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 def _is_admin(update, context):
     ADMIN_ID = context.bot_data.get("ADMIN_ID")
@@ -42,6 +45,7 @@ async def _copy_message_to_user(context, to_chat_id, from_message):
         await from_message.copy(chat_id=to_chat_id)
         return True
     except Exception as e:
+        logger.warning(f"Could not copy message to {to_chat_id}: {e}")
         return False
 
 async def admin_block(update: Update, context):
@@ -147,7 +151,7 @@ async def admin_message(update: Update, context):
         if success:
             await update.message.reply_text(f"✅ Message sent to user {user_id}.")
         else:
-            await update.message.reply_text(f"❌ Failed to send message to user {user_id}.")
+            await update.message.reply_text(f"❌ Failed to send message to user {user_id}. User may have blocked the bot.")
     else:
         # Method 1: Traditional text message
         if len(context.args) < 2:
@@ -160,7 +164,7 @@ async def admin_message(update: Update, context):
         if success:
             await update.message.reply_text(f"✅ Message sent to user {user_id}.")
         else:
-            await update.message.reply_text(f"❌ Failed to send message to user {user_id}.")
+            await update.message.reply_text(f"❌ Failed to send message to user {user_id}. User may have blocked the bot.")
 
 async def admin_ad(update: Update, context):
     """
@@ -247,22 +251,80 @@ async def admin_ad(update: Update, context):
         await update.message.reply_text(result_msg, parse_mode='Markdown')
 
 async def admin_adminroom(update: Update, context):
+    """
+    FIXED: Create a private room between admin and a user
+    Handles both bot_data and user_data room mapping
+    """
     if not _is_admin(update, context):
         await update.message.reply_text("Unauthorized.")
         return
     if not context.args:
         await update.message.reply_text("Usage: /adminroom <user_id or @username>")
         return
+    
     identifier = context.args[0]
     user = await _lookup_user(identifier)
     if not user:
         await update.message.reply_text("User not found.")
         return
+    
+    user_id = user["user_id"]
     admin_id = context.bot_data.get("ADMIN_ID")
-    room_id = await create_room(admin_id, user["user_id"])
-    context.bot_data.setdefault("user_room_map", {})[admin_id] = room_id
-    context.bot_data.setdefault("user_room_map", {})[user["user_id"]] = room_id
-    await update.message.reply_text(f"✅ Private room with user {user['user_id']} created. Now chat as usual. Use /end to leave.")
+    
+    # Check if user has blocked the bot
+    try:
+        # Try to send a test message
+        await context.bot.send_chat_action(chat_id=user_id, action="typing")
+    except Exception as e:
+        await update.message.reply_text(
+            f"❌ Cannot create room with user {user_id}.\n"
+            f"The user may have blocked the bot or stopped it.\n"
+            f"Error: {str(e)}"
+        )
+        return
+    
+    # Create the room
+    room_id = await create_room(admin_id, user_id)
+    
+    # CRITICAL FIX: Set room mapping in both bot_data AND user_data for both users
+    if "user_room_map" not in context.bot_data:
+        context.bot_data["user_room_map"] = {}
+    
+    context.bot_data["user_room_map"][admin_id] = room_id
+    context.bot_data["user_room_map"][user_id] = room_id
+    
+    # Set in application user_data if available
+    if hasattr(context, "application"):
+        if admin_id not in context.application.user_data:
+            context.application.user_data[admin_id] = {}
+        if user_id not in context.application.user_data:
+            context.application.user_data[user_id] = {}
+        
+        context.application.user_data[admin_id]["room_id"] = room_id
+        context.application.user_data[user_id]["room_id"] = room_id
+    
+    # CRITICAL FIX: Also set in current context.user_data for admin
+    context.user_data["room_id"] = room_id
+    
+    # Notify user that admin wants to chat (optional, make it look like a normal match)
+    try:
+        from bot import load_locale
+        user_lang = user.get("language", "en")
+        user_locale = load_locale(user_lang)
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"🎉 {user_locale.get('match_found', 'Match found! Say hi to your partner.')}"
+        )
+    except Exception as e:
+        logger.warning(f"Could not notify user {user_id} about admin room: {e}")
+    
+    await update.message.reply_text(
+        f"✅ Private room with user {user_id} created successfully!\n"
+        f"🆔 Room ID: `{room_id}`\n"
+        f"💬 You can now chat normally. The user will see it as a regular match.\n"
+        f"🚪 Use /end to leave the room when done.",
+        parse_mode='Markdown'
+    )
 
 async def admin_linkusers(update: Update, context):
     """
@@ -316,6 +378,17 @@ async def admin_linkusers(update: Update, context):
         await update.message.reply_text(f"❌ User {user2_id} is already in a chat room.")
         return
     
+    # Check if users have blocked the bot
+    for uid in [user1_id, user2_id]:
+        try:
+            await context.bot.send_chat_action(chat_id=uid, action="typing")
+        except Exception as e:
+            await update.message.reply_text(
+                f"❌ Cannot link users. User {uid} may have blocked the bot.\n"
+                f"Error: {str(e)}"
+            )
+            return
+    
     # Remove users from waiting pool/queue if they're there
     from rooms import users_online, remove_from_pool
     from handlers.match import remove_from_premium_queue
@@ -332,7 +405,7 @@ async def admin_linkusers(update: Update, context):
     # Create room between the two users
     room_id = await create_room(user1_id, user2_id)
     
-    # Set room mapping
+    # Set room mapping in bot_data
     if "user_room_map" not in context.bot_data:
         context.bot_data["user_room_map"] = {}
     context.bot_data["user_room_map"][user1_id] = room_id
@@ -340,6 +413,11 @@ async def admin_linkusers(update: Update, context):
     
     # Set in application user_data if available
     if hasattr(context, "application"):
+        if user1_id not in context.application.user_data:
+            context.application.user_data[user1_id] = {}
+        if user2_id not in context.application.user_data:
+            context.application.user_data[user2_id] = {}
+        
         context.application.user_data[user1_id]["room_id"] = room_id
         context.application.user_data[user2_id]["room_id"] = room_id
     
@@ -361,11 +439,13 @@ async def admin_linkusers(update: Update, context):
     locale2 = load_locale(user2_lang)
     
     # Notify both users as if they were matched normally
+    success_count = 0
     try:
         await context.bot.send_message(
             chat_id=user1_id,
             text=f"🎉 {locale1.get('match_found', 'Match found! Say hi to your partner.')}"
         )
+        success_count += 1
     except Exception as e:
         await update.message.reply_text(f"⚠️ Could not notify user {user1_id}: {e}")
     
@@ -374,8 +454,15 @@ async def admin_linkusers(update: Update, context):
             chat_id=user2_id,
             text=f"🎉 {locale2.get('match_found', 'Match found! Say hi to your partner.')}"
         )
+        success_count += 1
     except Exception as e:
         await update.message.reply_text(f"⚠️ Could not notify user {user2_id}: {e}")
+    
+    if success_count < 2:
+        await update.message.reply_text(
+            f"⚠️ Room created but some users couldn't be notified.\n"
+            f"They may have blocked the bot."
+        )
     
     # Notify admin group with room details
     admin_group = context.bot_data.get('ADMIN_GROUP_ID')
@@ -405,7 +492,7 @@ async def admin_linkusers(update: Update, context):
         f"👤 User 1: {username1} (ID: {user1_id})\n"
         f"👤 User 2: {username2} (ID: {user2_id})\n"
         f"🆔 Room ID: `{room_id}`\n\n"
-        f"Both users have been notified of their match.\n"
+        f"✉️ Notifications sent: {success_count}/2\n"
         f"They don't know you linked them - it appears as a normal match.",
         parse_mode='Markdown'
     )
@@ -578,7 +665,10 @@ async def admin_userinfo(update: Update, context):
     )
     await update.message.reply_text(txt, parse_mode='Markdown')
     for pid in user.get('profile_photos', [])[:5]:
-        await context.bot.send_photo(chat_id=update.effective_chat.id, photo=pid)
+        try:
+            await context.bot.send_photo(chat_id=update.effective_chat.id, photo=pid)
+        except:
+            pass
 
 async def admin_roominfo(update: Update, context):
     if not _is_admin(update, context):
@@ -606,39 +696,12 @@ async def admin_roominfo(update: Update, context):
                 )
                 users_info.append(txt)
                 for pid in u.get('profile_photos', [])[:3]:
-                    await context.bot.send_photo(chat_id=update.effective_chat.id, photo=pid)
+                    try:
+                        await context.bot.send_photo(chat_id=update.effective_chat.id, photo=pid)
+                    except:
+                        pass
         
         room_txt = (
             f"💬 *Room Information*\n"
             f"━━━━━━━━━━━━━━━━\n"
-            f"Room ID: `{room['room_id']}`\n"
-            f"Active: {'✅ Yes' if room.get('active', False) else '❌ No'}\n"
-            f"Created: {datetime.fromtimestamp(room['created_at']).strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-            + "\n\n".join(users_info)
-        )
-        await update.message.reply_text(room_txt, parse_mode='Markdown')
-    else:
-        await update.message.reply_text("Room not found.")
-
-async def admin_viewhistory(update: Update, context):
-    if not _is_admin(update, context):
-        await update.message.reply_text("Unauthorized.")
-        return
-    if not context.args:
-        await update.message.reply_text("Usage: /viewhistory <room_id>")
-        return
-    room_id = context.args[0]
-    history = await get_chat_history(room_id)
-    if history:
-        # Export as file for better readability
-        history_text = json.dumps(history, indent=2, default=str, ensure_ascii=False)
-        file = BytesIO(history_text.encode('utf-8'))
-        file.name = f"chat_history_{room_id}.json"
-        
-        await update.message.reply_document(
-            document=file,
-            filename=file.name,
-            caption=f"💬 Chat history for room {room_id}\nTotal messages: {len(history)}"
-        )
-    else:
-        await update.message.reply_text("No chat history found.")
+            f"Room ID: `{room['room_id']}`
