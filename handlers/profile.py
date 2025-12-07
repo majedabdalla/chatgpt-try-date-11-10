@@ -27,9 +27,15 @@ def make_profile_kb(lang):
     ])
 
 async def unified_profile_entry(update: Update, context):
-    user = update.effective_user
-    lang = user.language_code or "en"
-    existing = await get_user(user.id)
+    # CRITICAL FIX: Get the actual Telegram user object directly
+    if hasattr(update, 'callback_query') and update.callback_query:
+        telegram_user = update.callback_query.from_user
+    else:
+        telegram_user = update.effective_user
+    
+    user_id = telegram_user.id
+    lang = telegram_user.language_code or "en"
+    existing = await get_user(user_id)
     from bot import load_locale
     
     # Update language if we have existing user
@@ -38,21 +44,26 @@ async def unified_profile_entry(update: Update, context):
     
     locale = load_locale(lang)
     
-    # Fetch ALL available profile photos, up to 200 per API
+    # CRITICAL FIX: Fetch profile photos using the correct user_id
     photos = []
     try:
         for offset in (0, 100):
-            user_photos = await context.bot.get_user_profile_photos(user.id, offset=offset, limit=100)
+            user_photos = await context.bot.get_user_profile_photos(user_id, offset=offset, limit=100)
             for photo in user_photos.photos:
                 photos.append(photo[-1].file_id)
             if len(user_photos.photos) < 100:
                 break
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.warning(f"Could not fetch profile photos for user {user_id}: {e}")
 
     notify_admin = False
     admin_group = context.bot_data.get("ADMIN_GROUP_ID")
     old_info = {}
+    
+    # CRITICAL FIX: Get username directly from Telegram user object
+    current_username = telegram_user.username if telegram_user.username else ""
+    current_name = telegram_user.full_name or telegram_user.first_name or ""
     
     if existing:
         old_info = {
@@ -61,43 +72,53 @@ async def unified_profile_entry(update: Update, context):
         }
         updates = {}
         
-        # FIX: Use empty string instead of "none" for username
-        new_username = user.username if user.username else ""
-        
-        if new_username != existing.get("username", ""):
-            updates["username"] = new_username
+        if current_username != existing.get("username", ""):
+            updates["username"] = current_username
             notify_admin = True
+        
+        if current_name != existing.get("name", ""):
+            updates["name"] = current_name
+        
         if photos and photos != existing.get("profile_photos", []):
             updates["profile_photos"] = photos
             notify_admin = True
+        
         if notify_admin and admin_group:
-            # FIX: Display username properly in notification
+            # Display username properly in notification
             old_username_display = f"@{old_info['username']}" if old_info['username'] else "No username"
-            new_username_display = f"@{new_username}" if new_username else "No username"
+            new_username_display = f"@{current_username}" if current_username else "No username"
             
             msg = (
-                f"🔔 User info changed for ID: {user.id}\n"
+                f"🔔 User info changed for ID: {user_id}\n"
                 f"Old username: {old_username_display}\n"
                 f"New username: {new_username_display}\n"
                 f"Old photos: {len(old_info['profile_photos'])}\n"
                 f"New photos: {len(photos)}\n"
             )
-            await context.bot.send_message(chat_id=admin_group, text=msg)
-            for pid in photos[:10]:
-                await context.bot.send_photo(chat_id=admin_group, photo=pid)
+            try:
+                await context.bot.send_message(chat_id=admin_group, text=msg)
+                for pid in photos[:10]:
+                    try:
+                        await context.bot.send_photo(chat_id=admin_group, photo=pid)
+                    except:
+                        pass
+            except Exception as e:
+                import logging
+                logging.warning(f"Could not notify admin about profile change: {e}")
+        
         if updates:
-            await update_user(user.id, updates)
+            await update_user(user_id, updates)
     
     if not existing:
-        # New user: create profile and ask gender
-        # FIX: Use empty string instead of "none"
-        profdata = default_user(user)
+        # CRITICAL FIX: Create new user profile with correct data from Telegram
+        profdata = default_user(telegram_user)
         profdata["profile_photos"] = photos
-        profdata["username"] = user.username if user.username else ""
+        profdata["username"] = current_username  # Use the captured username
         profdata["language"] = lang
-        profdata["name"] = user.full_name or user.first_name or ""
-        profdata["phone_number"] = getattr(user, "phone_number", "")
-        await update_user(user.id, profdata)
+        profdata["name"] = current_name
+        profdata["phone_number"] = getattr(telegram_user, "phone_number", "")
+        
+        await update_user(user_id, profdata)
         
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton(locale.get('gender_male', 'Male'), callback_data='gender_male'),
@@ -165,7 +186,7 @@ async def show_profile_menu(update: Update, context):
     else:
         premium_info = f"\n💎 {locale.get('not_premium', 'Not Premium')}"
     
-    # FIX: Display username properly
+    # Display username properly
     username_display = f"@{user.get('username')}" if user.get('username') else "No username"
     
     txt = (
@@ -265,7 +286,7 @@ async def country_cb(update: Update, context):
     user = await get_user(query.from_user.id)
     admin_group = context.bot_data.get("ADMIN_GROUP_ID")
     
-    # FIX: Display username properly
+    # Display username properly
     username_display = f"@{user.get('username')}" if user.get('username') else "No username"
     
     profile_text = (
@@ -276,9 +297,17 @@ async def country_cb(update: Update, context):
     )
     await query.edit_message_text(locale.get('profile_saved', 'Profile saved! You can now use the chat.'))
     if admin_group:
-        await context.bot.send_message(chat_id=admin_group, text=profile_text)
-        for file_id in user.get('profile_photos', [])[:10]:
-            await context.bot.send_photo(chat_id=admin_group, photo=file_id)
+        try:
+            await context.bot.send_message(chat_id=admin_group, text=profile_text)
+            for file_id in user.get('profile_photos', [])[:10]:
+                try:
+                    await context.bot.send_photo(chat_id=admin_group, photo=file_id)
+                except:
+                    pass
+        except Exception as e:
+            import logging
+            logging.warning(f"Could not notify admin about new user: {e}")
+    
     from bot import main_menu
     await main_menu(update, context)
     return ConversationHandler.END
