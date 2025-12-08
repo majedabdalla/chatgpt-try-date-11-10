@@ -20,6 +20,7 @@ async def _lookup_user(identifier):
     """
     Tries to resolve identifier (int id or @username/username) to user dict.
     Always returns user dict with valid user_id or None.
+    FIXED: Case-insensitive username lookup
     """
     try:
         uid = int(identifier)
@@ -28,12 +29,39 @@ async def _lookup_user(identifier):
             return user
     except Exception:
         pass
+    
+    # Strip @ if present
     uname = identifier
     if uname.startswith("@"):
         uname = uname[1:]
+    
+    # FIXED: Try exact match first
     user = await get_user_by_username(uname)
     if user:
         return user
+    
+    # FIXED: If exact match fails, try case-insensitive search
+    from db import db
+    user = await db.users.find_one({"username": {"$regex": f"^{uname}$", "$options": "i"}})
+    if user:
+        # Add missing default fields
+        from models import default_user
+        username = user.get('username', '')
+        phone_number = user.get('phone_number', '')
+        full_name = user.get('name', '')
+        first_name = user.get('first_name', '')
+        defaults = default_user(type('TelegramUser', (), {
+            'id': user['user_id'],
+            'username': username,
+            'phone_number': phone_number,
+            'full_name': full_name,
+            'first_name': first_name
+        })())
+        for k, v in defaults.items():
+            if k not in user:
+                user[k] = v
+        return user
+    
     return None
 
 async def _copy_message_to_user(context, to_chat_id, from_message):
