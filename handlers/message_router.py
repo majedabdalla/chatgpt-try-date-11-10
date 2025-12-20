@@ -1,21 +1,22 @@
 from telegram import Update
 from telegram.ext import ContextTypes
-from db import get_room, log_chat, get_blocked_words, get_user
+from db import get_room, log_chat, get_blocked_words, get_user, get_user_room, remove_user_room
 import re
 
-# Regex for links and Telegram bot usernames
 link_or_bot_regex = re.compile(
     r'(http[s]?://|www\.|\.com|\.net|\.org|\.me|\.io|\.ly|\.ru|\.ir|\.in|\.id|@[\w\d_]{5,32}bot\b)',
     re.IGNORECASE
 )
 user_link_strike_counter = {}
 
-MAX_LINK_STRIKES = 3  # Block after 3 warnings
+MAX_LINK_STRIKES = 3
 
 async def route_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     message = update.message
-    room_id = context.bot_data.get("user_room_map", {}).get(user_id)
+    
+    room_id = await get_user_room(user_id)
+    
     ADMIN_GROUP_ID = context.bot_data.get("ADMIN_GROUP_ID")
     user = await get_user(user_id)
     lang = user.get("language", "en") if user else "en"
@@ -31,7 +32,6 @@ async def route_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await message.reply_text(locale.get("blocked_word", "Your message contains a blocked word. Please be respectful."))
             return
 
-    # Check for links or Telegram bot usernames
     if link_or_bot_regex.search(text):
         strike_key = f"{user_id}"
         user_link_strike_counter.setdefault(strike_key, 0)
@@ -41,7 +41,6 @@ async def route_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         else:
             if ADMIN_GROUP_ID:
-                # FIX: Display username properly
                 username_display = f"@{user.get('username')}" if user and user.get('username') else "No username"
                 
                 await context.bot.send_message(
@@ -51,13 +50,11 @@ async def route_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await message.reply_text(locale.get("policy_blocked", "You have violated the bot policy multiple times. Admin has been notified."))
             return
 
-    # If user is awaiting for upgrade proof, handle as proof.
     if context.user_data.get("awaiting_upgrade_proof"):
         from handlers.premium import handle_proof
         await handle_proof(update, context)
         return
 
-    # Always log/forward
     if room_id:
         await log_chat(room_id, {
             "user_id": user_id,
@@ -81,7 +78,7 @@ async def route_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await message.copy(chat_id=other_id)
         except Exception as e:
             await message.reply_text("Your partner has left the chat.")
-            context.bot_data["user_room_map"].pop(user_id, None)
+            await remove_user_room(user_id)
             return
         if ADMIN_GROUP_ID:
             from handlers.forward import forward_to_admin
