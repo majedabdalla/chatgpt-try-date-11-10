@@ -6,7 +6,10 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, filters
 )
-from db import db, get_user, update_user, get_room
+from db import (
+    db, get_user, update_user, get_room, test_connection, create_indexes,
+    mark_all_users_offline, cleanup_stale_rooms, get_user_room, set_user_room
+)
 from handlers.profile import (
     unified_profile_entry, profile_menu_cb, gender_cb, region_cb, country_cb,
     ASK_GENDER, ASK_REGION, ASK_COUNTRY, PROFILE_MENU
@@ -22,7 +25,7 @@ from handlers.admincmds import (
 from handlers.match import (
     find_command, search_conv, end_command, next_command, open_filter_menu,
     menu_callback_handler, select_filter_cb, stop_search_callback,
-    remove_from_premium_queue, create_room, get_admin_room_meta, set_users_room_map
+    remove_from_premium_queue, create_room, get_admin_room_meta
 )
 from handlers.forward import forward_to_admin
 from handlers.referral import show_referral_info, process_referral, admin_check_referrals
@@ -46,11 +49,19 @@ LANGS = {
     "id": "🇮🇩 Indonesia"
 }
 
+_locale_cache = {}
+
 def load_locale(lang):
+    """Load locale with caching"""
+    if lang in _locale_cache:
+        return _locale_cache[lang]
+    
     path = os.path.join(LOCALE_DIR, f"{lang}.json")
     try:
         with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+            _locale_cache[lang] = data
+            return data
     except Exception:
         return {}
 
@@ -65,7 +76,6 @@ def get_user_locale(user):
     return lang
 
 def make_inline_kb(rows, lang):
-    """rows: list of [("text_key", callback_data)]"""
     locale = load_locale(lang)
     return InlineKeyboardMarkup(
         [[InlineKeyboardButton(locale.get(text_key, text_key), callback_data=cb)] for text_key, cb in rows]
@@ -81,7 +91,6 @@ async def reply_translated(update, context, key, **kwargs):
     await update.message.reply_text(msg)
 
 async def start(update: Update, context):
-    # Process referral if present
     await process_referral(update, context)
     
     kb = InlineKeyboardMarkup([
@@ -106,25 +115,18 @@ async def language_select_callback(update: Update, context):
     lang = query.data.split("_", 1)[1]
     user = query.from_user
     
-    # Check if user already exists
     existing_user = await get_user(user.id)
     
-    # FIX: Fetch profile photos
     photos = []
     try:
-        for offset in (0, 100):
-            user_photos = await context.bot.get_user_profile_photos(user.id, offset=offset, limit=100)
-            for photo in user_photos.photos:
-                photos.append(photo[-1].file_id)
-            if len(user_photos.photos) < 100:
-                break
-    except Exception:
-        pass
+        user_photos = await context.bot.get_user_profile_photos(user.id, limit=10)
+        for photo in user_photos.photos[:10]:
+            photos.append(photo[-1].file_id)
+    except Exception as e:
+        logger.warning(f"Could not fetch profile photos: {e}")
     
-    # FIX: Use empty string instead of "none" for username
     username = user.username if user.username else ""
     
-    # FIX: Capture username, name, and profile photos when language is selected
     await update_user(user.id, {
         "language": lang,
         "username": username,
@@ -145,12 +147,10 @@ async def language_select_callback(update: Update, context):
     
     await show_main_menu(update, context, f"🏠 {locale.get('main_menu', 'Main Menu:')}", kb)
     
-    # If this was a new user (didn't exist before), go to profile setup
     if not existing_user:
         await unified_profile_entry(update, context)
 
 async def show_main_menu(update, context, menu_text=None, reply_markup=None):
-    """Unified main menu display/edit; only one menu at a time."""
     message_id = context.user_data.get("last_menu_message_id")
     chat_id = update.effective_chat.id
     if not menu_text:
@@ -192,7 +192,6 @@ async def main_menu(update: Update, context):
     await show_main_menu(update, context)
 
 async def referral_menu_callback(update: Update, context):
-    """Handle the referral button click from main menu"""
     query = update.callback_query
     await query.answer()
     
@@ -206,15 +205,12 @@ async def referral_menu_callback(update: Update, context):
     lang = get_user_locale(user)
     locale = load_locale(lang)
     
-    # Get bot username
     bot_info = await context.bot.get_me()
     bot_username = bot_info.username
     
-    # Generate referral link
     from handlers.referral import generate_referral_link
     referral_link = await generate_referral_link(user_id, bot_username)
     
-    # Get referral stats
     referral_count = user.get("referral_count", 0)
     total_premium_days = referral_count
     
@@ -233,7 +229,6 @@ async def referral_menu_callback(update: Update, context):
         f"🎉 {locale.get('referral_unlimited', 'Unlimited referrals = Unlimited premium!')}"
     )
     
-    # Create share button and back button
     share_text = locale.get('referral_share_text', f'Join me on AnonIndoChat! 🎉')
     share_url = f"https://t.me/share/url?url={referral_link}&text={share_text}"
     
@@ -249,30 +244,37 @@ async def referral_menu_callback(update: Update, context):
     )
 
 async def check_premium_queue_job(context):
-    """
-    Background job to check premium queue for matches
-    Runs every 45 seconds to balance resource usage on free tier
-    """
+    """Background job to check premium queue for matches"""
     try:
-        # Get all users in premium queue
+        queued_users = []
         async for queued in db.premium_queue.find({}):
+            queued_users.append(queued)
+        
+        online_users = []
+        async for user in db.users.find({"is_online": True}):
+            user_id = user["user_id"]
+            existing_room = await get_user_room(user_id)
+            if not existing_room:
+                online_users.append(user)
+        
+        for queued in queued_users:
             queued_user_id = queued["user_id"]
             filters = queued.get("filters", {})
             
-            # Check current online users for matches
-            for online_user_id in list(users_online):
+            existing_room = await get_user_room(queued_user_id)
+            if existing_room:
+                await remove_from_premium_queue(queued_user_id)
+                continue
+            
+            for online_user in online_users:
+                online_user_id = online_user["user_id"]
+                
                 if online_user_id == queued_user_id:
                     continue
                 
-                # Check if user is already in a room
-                if online_user_id in context.bot_data.get("user_room_map", {}):
+                if await get_user_room(online_user_id):
                     continue
                 
-                online_user = await get_user(online_user_id)
-                if not online_user:
-                    continue
-                
-                # Check if online user matches queued user's filters
                 match = True
                 for key, val in filters.items():
                     if val and online_user.get(key) != val:
@@ -280,45 +282,28 @@ async def check_premium_queue_job(context):
                         break
                 
                 if match:
-                    # Found a match!
                     await remove_from_premium_queue(queued_user_id)
                     users_online.discard(online_user_id)
                     users_online.discard(queued_user_id)
                     
                     room_id = await create_room(queued_user_id, online_user_id)
                     
-                    # Set room mapping
-                    if "user_room_map" not in context.bot_data:
-                        context.bot_data["user_room_map"] = {}
-                    context.bot_data["user_room_map"][queued_user_id] = room_id
-                    context.bot_data["user_room_map"][online_user_id] = room_id
+                    await set_user_room(queued_user_id, room_id)
+                    await set_user_room(online_user_id, room_id)
                     
-                    # Notify both users
                     queued_user = await get_user(queued_user_id)
                     
-                    # Notify queued user
-                    queued_lang = get_user_locale(queued_user)
-                    queued_locale = load_locale(queued_lang)
-                    try:
-                        await context.bot.send_message(
-                            queued_user_id,
-                            f"🎉 {queued_locale.get('match_found', 'Match found! Say hi to your partner.')}"
-                        )
-                    except Exception as e:
-                        logger.warning(f"Could not notify queued user {queued_user_id}: {e}")
+                    for uid, user_data in [(queued_user_id, queued_user), (online_user_id, online_user)]:
+                        try:
+                            lang = get_user_locale(user_data)
+                            locale = load_locale(lang)
+                            await context.bot.send_message(
+                                uid,
+                                f"🎉 {locale.get('match_found', 'Match found! Say hi to your partner.')}"
+                            )
+                        except Exception as e:
+                            logger.warning(f"Could not notify user {uid}: {e}")
                     
-                    # Notify online user
-                    online_lang = get_user_locale(online_user)
-                    online_locale = load_locale(online_lang)
-                    try:
-                        await context.bot.send_message(
-                            online_user_id,
-                            f"🎉 {online_locale.get('match_found', 'Match found! Say hi to your partner.')}"
-                        )
-                    except Exception as e:
-                        logger.warning(f"Could not notify online user {online_user_id}: {e}")
-                    
-                    # Notify admin group
                     admin_group = context.bot_data.get('ADMIN_GROUP_ID')
                     if admin_group:
                         try:
@@ -326,23 +311,50 @@ async def check_premium_queue_job(context):
                             txt = get_admin_room_meta(room, queued_user_id, online_user_id, [queued_user, online_user])
                             await context.bot.send_message(chat_id=admin_group, text=txt)
                             for u in [queued_user, online_user]:
-                                for pid in u.get('profile_photos', [])[:10]:
-                                    await context.bot.send_photo(chat_id=admin_group, photo=pid)
+                                for pid in u.get('profile_photos', [])[:5]:
+                                    try:
+                                        await context.bot.send_photo(chat_id=admin_group, photo=pid)
+                                    except:
+                                        pass
                         except Exception as e:
                             logger.warning(f"Could not notify admin group: {e}")
                     
-                    # Match made, break to next queued user
+                    online_users.remove(online_user)
                     break
     
     except Exception as e:
         logger.error(f"Error in premium queue check: {e}")
+
+async def startup(application):
+    """Startup tasks"""
+    logger.info("🚀 Starting AnonIndoChat Bot...")
+    
+    if not await test_connection():
+        logger.error("❌ Database connection failed! Bot cannot start.")
+        raise Exception("MongoDB connection failed")
+    
+    await create_indexes()
+    
+    cleaned = await cleanup_stale_rooms()
+    if cleaned > 0:
+        logger.info(f"🧹 Cleaned up {cleaned} stale room mappings")
+    
+    logger.info("✅ Bot startup complete!")
+
+async def shutdown(application):
+    """Shutdown tasks"""
+    logger.info("🛑 Shutting down AnonIndoChat Bot...")
+    await mark_all_users_offline()
+    logger.info("✅ Bot shutdown complete!")
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.bot_data["ADMIN_GROUP_ID"] = ADMIN_GROUP_ID
     app.bot_data["ADMIN_ID"] = ADMIN_ID
 
-    # Profile conversation handler
+    app.post_init = startup
+    app.post_shutdown = shutdown
+
     profile_conv = ConversationHandler(
         entry_points=[
             CommandHandler('profile', unified_profile_entry),
@@ -360,10 +372,8 @@ def main():
     )
     app.add_handler(profile_conv)
 
-    # Search conversation handler
     app.add_handler(search_conv)
 
-    # Command handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("find", find_command))
     app.add_handler(CommandHandler("end", end_command))
@@ -374,13 +384,11 @@ def main():
     app.add_handler(CommandHandler("referral", show_referral_info))
     app.add_handler(CommandHandler("invite", show_referral_info))
 
-    # Callback handlers
     app.add_handler(CallbackQueryHandler(language_select_callback, pattern="^lang_"))
     app.add_handler(CallbackQueryHandler(menu_callback_handler, pattern="^(menu_find|menu_upgrade|menu_filter|menu_search|menu_back)$"))
     app.add_handler(CallbackQueryHandler(referral_menu_callback, pattern="^menu_referral$"))
     app.add_handler(CallbackQueryHandler(stop_search_callback, pattern="^(stop_search|cancel_search)$"))
 
-    # Admin commands
     admin_filter = filters.User(ADMIN_ID)
     app.add_handler(CommandHandler("block", admin_block, admin_filter))
     app.add_handler(CommandHandler("unblock", admin_unblock, admin_filter))
@@ -399,27 +407,28 @@ def main():
     app.add_handler(CommandHandler("linkusers", admin_linkusers, admin_filter))
     app.add_handler(CommandHandler("checkreferrals", admin_check_referrals, admin_filter))
 
-    # Admin callback handler
     app.add_handler(CallbackQueryHandler(admin_callback))
 
-    # Message router (must be last)
     app.add_handler(MessageHandler(~filters.COMMAND, route_message))
     
-    # Error handler
     app.add_error_handler(lambda update, context: logger.error(msg="Exception while handling an update:", exc_info=context.error))
 
-    # Background jobs
-    # 1. Check premium expiry every hour
     async def expiry_job(context):
         await downgrade_expired_premium(context.bot)
     app.job_queue.run_repeating(expiry_job, interval=3600, first=10)
     
-    # 2. Check premium queue every 45 seconds (optimized for Railway free tier)
     app.job_queue.run_repeating(check_premium_queue_job, interval=45, first=15)
+    
+    async def cleanup_job(context):
+        cleaned = await cleanup_stale_rooms()
+        if cleaned > 0:
+            logger.info(f"Periodic cleanup: removed {cleaned} stale mappings")
+    app.job_queue.run_repeating(cleanup_job, interval=1800, first=300)
 
     logger.info("🚀 AnonIndoChat Bot started successfully!")
     logger.info("📡 Polling for updates...")
     logger.info("⏰ Premium queue checker running every 45 seconds")
+    logger.info("🧹 Cleanup job running every 30 minutes")
     app.run_polling()
 
 if __name__ == "__main__":
