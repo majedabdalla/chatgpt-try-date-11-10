@@ -27,7 +27,6 @@ def make_profile_kb(lang):
     ])
 
 async def unified_profile_entry(update: Update, context):
-    # CRITICAL FIX: Get the actual Telegram user object directly
     if hasattr(update, 'callback_query') and update.callback_query:
         telegram_user = update.callback_query.from_user
     else:
@@ -38,21 +37,16 @@ async def unified_profile_entry(update: Update, context):
     existing = await get_user(user_id)
     from bot import load_locale
     
-    # Update language if we have existing user
     if existing:
         lang = get_user_locale(existing)
     
     locale = load_locale(lang)
     
-    # CRITICAL FIX: Fetch profile photos using the correct user_id
     photos = []
     try:
-        for offset in (0, 100):
-            user_photos = await context.bot.get_user_profile_photos(user_id, offset=offset, limit=100)
-            for photo in user_photos.photos:
-                photos.append(photo[-1].file_id)
-            if len(user_photos.photos) < 100:
-                break
+        user_photos = await context.bot.get_user_profile_photos(user_id, limit=10)
+        for photo in user_photos.photos[:10]:
+            photos.append(photo[-1].file_id)
     except Exception as e:
         import logging
         logging.warning(f"Could not fetch profile photos for user {user_id}: {e}")
@@ -61,7 +55,6 @@ async def unified_profile_entry(update: Update, context):
     admin_group = context.bot_data.get("ADMIN_GROUP_ID")
     old_info = {}
     
-    # CRITICAL FIX: Get username directly from Telegram user object
     current_username = telegram_user.username if telegram_user.username else ""
     current_name = telegram_user.full_name or telegram_user.first_name or ""
     
@@ -84,7 +77,6 @@ async def unified_profile_entry(update: Update, context):
             notify_admin = True
         
         if notify_admin and admin_group:
-            # Display username properly in notification
             old_username_display = f"@{old_info['username']}" if old_info['username'] else "No username"
             new_username_display = f"@{current_username}" if current_username else "No username"
             
@@ -110,10 +102,9 @@ async def unified_profile_entry(update: Update, context):
             await update_user(user_id, updates)
     
     if not existing:
-        # CRITICAL FIX: Create new user profile with correct data from Telegram
         profdata = default_user(telegram_user)
         profdata["profile_photos"] = photos
-        profdata["username"] = current_username  # Use the captured username
+        profdata["username"] = current_username
         profdata["language"] = lang
         profdata["name"] = current_name
         profdata["phone_number"] = getattr(telegram_user, "phone_number", "")
@@ -125,7 +116,6 @@ async def unified_profile_entry(update: Update, context):
              InlineKeyboardButton(locale.get('gender_female', 'Female'), callback_data='gender_female')]
         ])
         
-        # Send the gender selection message
         if hasattr(update, 'callback_query') and update.callback_query:
             await update.callback_query.answer()
             await update.callback_query.edit_message_text(
@@ -139,9 +129,7 @@ async def unified_profile_entry(update: Update, context):
             )
         return ASK_GENDER
     else:
-        # Check if profile is complete
         if not existing.get('gender') or not existing.get('region') or not existing.get('country'):
-            # Profile incomplete - go straight to edit mode
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton(locale.get('gender_male', 'Male'), callback_data='gender_male'),
                  InlineKeyboardButton(locale.get('gender_female', 'Female'), callback_data='gender_female')]
@@ -160,7 +148,6 @@ async def unified_profile_entry(update: Update, context):
                 )
             return ASK_GENDER
         else:
-            # Profile complete - show profile menu
             await show_profile_menu(update, context)
             return PROFILE_MENU
 
@@ -178,7 +165,6 @@ async def show_profile_menu(update: Update, context):
             await update.effective_message.reply_text(msg)
         return
     
-    # Add premium expiry info
     premium_info = ""
     if user.get('is_premium', False):
         expiry = user.get('premium_expiry', 'N/A')
@@ -186,7 +172,6 @@ async def show_profile_menu(update: Update, context):
     else:
         premium_info = f"\n💎 {locale.get('not_premium', 'Not Premium')}"
     
-    # Display username properly
     username_display = f"@{user.get('username')}" if user.get('username') else "No username"
     
     txt = (
@@ -239,16 +224,13 @@ async def gender_cb(update: Update, context):
     locale = load_locale(lang)
     await query.answer()
     
-    # Extract gender value - handle both 'gender_male' and 'gender_female'
     if '_' in query.data:
         gender = query.data.split('_', 1)[1]
     else:
-        gender = query.data  # Fallback
+        gender = query.data
     
-    # Always save the gender (no skip option for profile setup)
     await update_user(query.from_user.id, {"gender": gender})
     
-    # Show region selection
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton(region, callback_data=f"region_{region}")] for region in REGIONS
     ])
@@ -263,7 +245,6 @@ async def region_cb(update: Update, context):
     locale = load_locale(lang)
     await query.answer()
     
-    # Handle region with spaces (e.g., "North America")
     region = query.data.replace('region_', '', 1)
     await update_user(query.from_user.id, {"region": region})
     
@@ -286,7 +267,6 @@ async def country_cb(update: Update, context):
     user = await get_user(query.from_user.id)
     admin_group = context.bot_data.get("ADMIN_GROUP_ID")
     
-    # Display username properly
     username_display = f"@{user.get('username')}" if user.get('username') else "No username"
     
     profile_text = (
