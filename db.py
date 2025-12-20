@@ -2,25 +2,54 @@ import os
 import logging
 from motor.motor_asyncio import AsyncIOMotorClient
 from models import default_user
+from datetime import datetime
 
 MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+logger = logging.getLogger(__name__)
+
 try:
     client = AsyncIOMotorClient(
         MONGODB_URI,
         serverSelectionTimeoutMS=5000,
         connectTimeoutMS=10000,
-        socketTimeoutMS=10000
+        socketTimeoutMS=10000,
+        maxPoolSize=50,
+        minPoolSize=10
     )
-    # Test connection
-    import asyncio
-    asyncio.get_event_loop().run_until_complete(client.server_info())
 except Exception as e:
-    logging.error(f"MongoDB connection failed: {e}")
+    logger.error(f"MongoDB client initialization failed: {e}")
+
 db = client["anonindochat"]
+
+async def test_connection():
+    """Test MongoDB connection - call this at startup"""
+    try:
+        await client.server_info()
+        logger.info("✅ MongoDB connection successful")
+        return True
+    except Exception as e:
+        logger.error(f"❌ MongoDB connection failed: {e}")
+        return False
+
+async def create_indexes():
+    """Create database indexes for performance"""
+    try:
+        await db.users.create_index("user_id", unique=True)
+        await db.users.create_index("username")
+        await db.users.create_index("is_premium")
+        await db.users.create_index("is_online")
+        await db.rooms.create_index("room_id", unique=True)
+        await db.rooms.create_index("active")
+        await db.premium_queue.create_index("user_id", unique=True)
+        await db.user_rooms.create_index("user_id", unique=True)
+        await db.user_rooms.create_index("room_id")
+        await db.blocked_words.create_index("word", unique=True)
+        logger.info("✅ Database indexes created")
+    except Exception as e:
+        logger.warning(f"Index creation warning: {e}")
 
 async def get_user(user_id):
     user = await db.users.find_one({"user_id": user_id})
-    # Always provide all expected attributes to default_user
     username = ""
     phone_number = ""
     full_name = ""
@@ -44,7 +73,6 @@ async def get_user(user_id):
 
 async def get_user_by_username(username):
     user = await db.users.find_one({"username": username})
-    # Always provide all expected attributes to default_user
     user_id = user['user_id'] if user else 0
     phone_number = user.get('phone_number', '') if user else ''
     full_name = user.get('name', '') if user else ''
@@ -93,7 +121,43 @@ async def update_user(user_id, updates):
                 doc[k] = v
         await db.users.update_one({"user_id": user_id}, {"$set": doc}, upsert=True)
 
-# ----- PATCH: Add room and utility functions -----
+# ===== ROOM MAPPING FUNCTIONS (DATABASE-BACKED) =====
+
+async def set_user_room(user_id, room_id):
+    """Store user's current room in database - PERSISTENT across restarts"""
+    await db.user_rooms.update_one(
+        {"user_id": user_id},
+        {"$set": {
+            "room_id": room_id, 
+            "updated_at": datetime.utcnow()
+        }},
+        upsert=True
+    )
+    logger.info(f"Set user {user_id} to room {room_id}")
+
+async def get_user_room(user_id):
+    """Get user's current room from database"""
+    doc = await db.user_rooms.find_one({"user_id": user_id})
+    return doc["room_id"] if doc else None
+
+async def remove_user_room(user_id):
+    """Remove user from room mapping"""
+    result = await db.user_rooms.delete_one({"user_id": user_id})
+    if result.deleted_count > 0:
+        logger.info(f"Removed user {user_id} from room mapping")
+
+async def get_room_users(room_id):
+    """Get all users in a specific room"""
+    cursor = db.user_rooms.find({"room_id": room_id})
+    users = []
+    async for doc in cursor:
+        users.append(doc["user_id"])
+    return users
+
+async def clear_room_mappings(room_id):
+    """Remove all users from a specific room"""
+    result = await db.user_rooms.delete_many({"room_id": room_id})
+    logger.info(f"Cleared {result.deleted_count} users from room {room_id}")
 
 async def insert_room(room):
     await db.rooms.insert_one(room)
@@ -111,15 +175,23 @@ async def log_chat(room_id, msg):
     await db.chatlogs.insert_one({"room_id": room_id, **msg})
 
 async def get_chat_history(room_id):
-    # Returns list of chat logs for a room
     cursor = db.chatlogs.find({"room_id": room_id})
     return [doc async for doc in cursor]
+
+async def delete_chat_logs(room_id):
+    """Delete all chat logs for a room"""
+    result = await db.chatlogs.delete_many({"room_id": room_id})
+    return result.deleted_count
 
 async def insert_report(report):
     await db.reports.insert_one(report)
 
 async def insert_blocked_word(word):
-    await db.blocked_words.update_one({"word": word.lower()}, {"$set": {"word": word.lower()}}, upsert=True)
+    await db.blocked_words.update_one(
+        {"word": word.lower()}, 
+        {"$set": {"word": word.lower()}}, 
+        upsert=True
+    )
 
 async def remove_blocked_word(word):
     await db.blocked_words.delete_one({"word": word.lower()})
@@ -127,3 +199,37 @@ async def remove_blocked_word(word):
 async def get_blocked_words():
     cursor = db.blocked_words.find({})
     return [doc["word"] async for doc in cursor]
+
+async def mark_user_online(user_id):
+    """Mark user as online"""
+    await update_user(user_id, {
+        "is_online": True,
+        "last_active": datetime.utcnow()
+    })
+
+async def mark_user_offline(user_id):
+    """Mark user as offline"""
+    await update_user(user_id, {
+        "is_online": False,
+        "last_active": datetime.utcnow()
+    })
+
+async def mark_all_users_offline():
+    """Mark all users as offline - call on bot shutdown"""
+    result = await db.users.update_many(
+        {},
+        {"$set": {"is_online": False}}
+    )
+    logger.info(f"Marked {result.modified_count} users as offline")
+
+async def cleanup_stale_rooms():
+    """Clean up stale room mappings (rooms that don't exist)"""
+    count = 0
+    async for mapping in db.user_rooms.find({}):
+        room = await get_room(mapping["room_id"])
+        if not room or not room.get("active", False):
+            await remove_user_room(mapping["user_id"])
+            count += 1
+    if count > 0:
+        logger.info(f"Cleaned up {count} stale room mappings")
+    return count
