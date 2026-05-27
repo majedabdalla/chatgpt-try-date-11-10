@@ -6,7 +6,7 @@ from db import (
 )
 from rooms import add_to_pool, remove_from_pool, users_online, create_room, close_room
 from handlers.profile import unified_profile_entry, ASK_GENDER
-from helpers import update_user_profile_info
+from helpers import update_user_profile_info, make_mention
 import random
 from datetime import datetime
 import logging
@@ -39,25 +39,25 @@ def get_filter_menu(lang, context, filters):
             return label
         return locale.get(key, key)
     selected = filters or {}
-    
+
     gender_display = selected.get('gender', '❌')
     if gender_display != '❌':
         gender_display = f"✅ {get_label('gender', gender_display)}"
     else:
         gender_display = locale.get('gender_skip', 'Any')
-    
+
     region_display = selected.get('region', '❌')
     if region_display != '❌':
         region_display = f"✅ {region_display}"
     else:
         region_display = locale.get('gender_skip', 'Any')
-    
+
     language_display = selected.get('language', '❌')
     if language_display != '❌':
         language_display = f"✅ {get_label('language', language_display)}"
     else:
         language_display = locale.get('gender_skip', 'Any')
-    
+
     rows = [
         [InlineKeyboardButton(
             f"👤 {locale.get('gender', 'Gender')}: {gender_display}",
@@ -81,7 +81,7 @@ async def open_filter_menu(update: Update, context):
     lang = get_user_locale(user)
     from bot import load_locale
     locale = load_locale(lang)
-    
+
     if not user or not user.get("is_premium", False):
         if hasattr(update, 'callback_query') and update.callback_query:
             await update.callback_query.answer(locale.get("premium_only", "This feature is for premium users only."), show_alert=True)
@@ -89,12 +89,12 @@ async def open_filter_menu(update: Update, context):
         else:
             await update.effective_message.reply_text(locale.get("premium_only", "This feature is for premium users only."))
         return ConversationHandler.END
-    
+
     context.user_data["search_filters"] = dict(user.get("matching_preferences", {}))
-    
+
     filter_text = f"🔍 {locale.get('select_filters', 'Set your filters below:')}\n\n"
     filter_text += f"ℹ️ {locale.get('filter_info', 'Click on each option to change it, then Save.')}"
-    
+
     if hasattr(update, 'callback_query') and update.callback_query:
         await update.callback_query.answer()
         await update.callback_query.edit_message_text(
@@ -121,16 +121,25 @@ async def remove_users_room_map(context, user1, user2=None):
         await remove_user_room(user2)
     logger.info(f"Removed room mapping for: {user1}" + (f" and {user2}" if user2 else ""))
 
-def get_admin_room_meta(room, user1, user2, users_data):
+def get_admin_room_meta(room, user1_id, user2_id, users_data):
+    """
+    Returns an HTML string with tappable inline mentions for both users.
+    Callers must use  parse_mode='HTML'  when sending this text.
+    """
     def meta(u):
-        username_display = f"@{u.get('username')}" if u.get('username') else "No username"
+        uid = u.get('user_id')
+        mention = make_mention(uid, u)
         return (
-            f"ID: {u.get('user_id')} | Username: {username_display} | Phone: {u.get('phone_number','N/A')}\n"
-            f"Language: {u.get('language','en')}, Gender: {u.get('gender','')}, Region: {u.get('region','')}, Premium: {u.get('is_premium', False)}"
+            f"ID: {uid} | {mention} | Phone: {u.get('phone_number', 'N/A')}\n"
+            f"Language: {u.get('language', 'en')}, Gender: {u.get('gender', '')}, "
+            f"Region: {u.get('region', '')}, Premium: {u.get('is_premium', False)}"
         )
-    txt = f"🆕 New Room Created\nRoomID: {room['room_id']}\n" \
-          f"👤 User1:\n{meta(users_data[0])}\n" \
-          f"👤 User2:\n{meta(users_data[1])}\n"
+
+    txt = (
+        f"🆕 New Room Created\nRoomID: {room['room_id']}\n"
+        f"👤 User1:\n{meta(users_data[0])}\n"
+        f"👤 User2:\n{meta(users_data[1])}\n"
+    )
     return txt
 
 async def add_to_premium_queue(user_id, filters):
@@ -157,31 +166,31 @@ async def check_premium_queue_for_match(user_id):
     user = await get_user(user_id)
     if not user:
         return None
-    
+
     async for queued in db.premium_queue.find({"user_id": {"$ne": user_id}}):
         filters = queued.get("filters", {})
         match = True
-        
+
         for key, val in filters.items():
             if val and user.get(key) != val:
                 match = False
                 break
-        
+
         if match:
             return queued["user_id"]
-    
+
     return None
 
 async def find_command(update: Update, context):
     user_id = update.effective_user.id
-    
+
     try:
         await update_user_profile_info(user_id, context)
     except Exception as e:
         logger.warning(f"Could not update profile for user {user_id}: {e}")
-    
+
     user = await get_user(user_id)
-    
+
     if hasattr(update, 'callback_query') and update.callback_query:
         reply_func = update.callback_query.edit_message_text
         is_callback = True
@@ -190,73 +199,73 @@ async def find_command(update: Update, context):
         is_callback = False
     else:
         return
-    
+
     if not user or not user.get('gender') or not user.get('region') or not user.get('country'):
         from bot import load_locale
         lang = user.get('language', 'en') if user else 'en'
         locale = load_locale(lang)
-        
+
         context.user_data['from_find_command'] = True
         msg_text = f"📝 {locale.get('profile_setup_required', 'Please complete your profile first!')}"
-        
+
         if is_callback:
             await update.callback_query.answer()
             await update.callback_query.edit_message_text(msg_text)
         else:
             await update.message.reply_text(msg_text)
-        
+
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton(locale.get('gender_male', 'Male'), callback_data='gender_male'),
              InlineKeyboardButton(locale.get('gender_female', 'Female'), callback_data='gender_female')]
         ])
-        
+
         if is_callback:
             await update.callback_query.message.reply_text(
-                locale.get('ask_gender', 'Select your gender:'), 
+                locale.get('ask_gender', 'Select your gender:'),
                 reply_markup=kb
             )
         else:
             await update.message.reply_text(
-                locale.get('ask_gender', 'Select your gender:'), 
+                locale.get('ask_gender', 'Select your gender:'),
                 reply_markup=kb
             )
-        
+
         return ASK_GENDER
-    
+
     lang = get_user_locale(user)
     from bot import load_locale
     locale = load_locale(lang)
-    
+
     room_id = await get_user_room(user_id)
     if room_id:
         await reply_func(locale.get("already_in_room", "You are already in a chat. Use /end or /next to leave first."))
         return
-    
+
     if user_id in users_online:
         kb = InlineKeyboardMarkup([[
             InlineKeyboardButton(f"❌ {locale.get('stop_searching', 'Stop Searching')}", callback_data="stop_search")
         ]])
         await reply_func(f"⏳ {locale.get('already_searching', 'You are already searching...')}", reply_markup=kb)
         return
-    
+
     queued_match = await check_premium_queue_for_match(user_id)
     if queued_match:
         await remove_from_premium_queue(queued_match)
         room_id = await create_room(user_id, queued_match)
         await set_users_room_map(context, user_id, queued_match, room_id)
-        
+
         await reply_func(f"🎉 {locale.get('match_found', 'Match found!')}")
-        
+
         partner_obj = await get_user(queued_match)
         partner_lang = get_user_locale(partner_obj)
         partner_locale = load_locale(partner_lang)
         await context.bot.send_message(queued_match, f"🎉 {partner_locale.get('match_found', 'Match found!')}")
-        
+
         admin_group = context.bot_data.get('ADMIN_GROUP_ID')
         if admin_group:
             room = await get_room(room_id)
             txt = get_admin_room_meta(room, user_id, queued_match, [user, partner_obj])
-            await context.bot.send_message(chat_id=admin_group, text=txt)
+            await context.bot.send_message(chat_id=admin_group, text=txt, parse_mode='HTML')
             for u in [user, partner_obj]:
                 for pid in u.get('profile_photos', [])[:10]:
                     try:
@@ -264,16 +273,16 @@ async def find_command(update: Update, context):
                     except:
                         pass
         return
-    
+
     kb = InlineKeyboardMarkup([[
         InlineKeyboardButton(f"❌ {locale.get('cancel_search', 'Cancel')}", callback_data="cancel_search")
     ]])
-    
+
     searching_msg = await reply_func(
         f"🔍 {locale.get('searching_partner', 'Searching for a partner...')}",
         reply_markup=kb
     )
-    
+
     candidates = [uid for uid in users_online if uid != user_id]
     if candidates:
         partner = random.choice(candidates)
@@ -281,14 +290,14 @@ async def find_command(update: Update, context):
         room_id = await create_room(user_id, partner)
         await set_users_room_map(context, user_id, partner, room_id)
         remove_from_pool(user_id)
-        
+
         if is_callback:
             msg_id = searching_msg.message_id if hasattr(searching_msg, 'message_id') else update.callback_query.message.message_id
             chat_id = update.callback_query.message.chat_id
         else:
             msg_id = searching_msg.message_id
             chat_id = update.message.chat_id
-        
+
         try:
             await context.bot.edit_message_text(
                 chat_id=chat_id,
@@ -300,17 +309,17 @@ async def find_command(update: Update, context):
                 chat_id=chat_id,
                 text=f"🎉 {locale.get('match_found', 'Match found!')}"
             )
-        
+
         partner_obj = await get_user(partner)
         partner_lang = get_user_locale(partner_obj)
         partner_locale = load_locale(partner_lang)
         await context.bot.send_message(partner, f"🎉 {partner_locale.get('match_found', 'Match found!')}")
-        
+
         admin_group = context.bot_data.get('ADMIN_GROUP_ID')
         if admin_group:
             room = await get_room(room_id)
             txt = get_admin_room_meta(room, user_id, partner, [user, partner_obj])
-            await context.bot.send_message(chat_id=admin_group, text=txt)
+            await context.bot.send_message(chat_id=admin_group, text=txt, parse_mode='HTML')
             for u in [user, partner_obj]:
                 for pid in u.get('profile_photos', [])[:10]:
                     try:
@@ -327,9 +336,9 @@ async def stop_search_callback(update: Update, context):
     lang = get_user_locale(user)
     from bot import load_locale
     locale = load_locale(lang)
-    
+
     await query.answer()
-    
+
     if user_id in users_online:
         remove_from_pool(user_id)
         await query.edit_message_text(f"❌ {locale.get('search_cancelled', 'Search cancelled.')}")
@@ -343,29 +352,29 @@ async def stop_search_callback(update: Update, context):
 
 async def end_command(update: Update, context):
     user_id = update.effective_user.id
-    
+
     room_id = await get_user_room(user_id)
-    
+
     user = await get_user(user_id)
     lang = get_user_locale(user)
     from bot import load_locale
     locale = load_locale(lang)
-    
+
     if not room_id:
         if user_id in users_online:
             remove_from_pool(user_id)
             await update.message.reply_text(f"❌ {locale.get('search_stopped', 'Stopped searching.')}")
             return
-        
+
         in_queue = await db.premium_queue.find_one({"user_id": user_id})
         if in_queue:
             await remove_from_premium_queue(user_id)
             await update.message.reply_text(f"❌ {locale.get('search_stopped', 'Stopped searching.')}")
             return
-            
+
         await update.message.reply_text(locale.get("not_in_room", "You are not in a room."))
         return
-    
+
     room = await get_room(room_id)
     other_id = None
     if room and "users" in room:
@@ -373,18 +382,18 @@ async def end_command(update: Update, context):
             await remove_user_room(uid)
             if uid != user_id:
                 other_id = uid
-    
+
     await close_room(room_id)
     await delete_room(room_id)
     await update.message.reply_text(f"👋 {locale.get('end_chat', 'You have left the chat.')}")
-    
+
     if other_id:
         try:
             other_user = await get_user(other_id)
             other_lang = get_user_locale(other_user)
             other_locale = load_locale(other_lang)
             await context.bot.send_message(
-                other_id, 
+                other_id,
                 f"💔 {other_locale.get('partner_left', 'Your partner left.')}"
             )
         except Exception:
@@ -404,17 +413,17 @@ async def select_filter_cb(update: Update, context):
     filters = context.user_data.get("search_filters", {})
     await query.answer()
     data = query.data
-    
+
     if data == "filter_gender":
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton(f"👨 {locale.get('gender_male', 'Male')}", callback_data="fgender_male"), 
+            [InlineKeyboardButton(f"👨 {locale.get('gender_male', 'Male')}", callback_data="fgender_male"),
              InlineKeyboardButton(f"👩 {locale.get('gender_female', 'Female')}", callback_data="fgender_female")],
             [InlineKeyboardButton(f"❌ {locale.get('gender_skip', 'Any')}", callback_data="fgender_skip")],
             [InlineKeyboardButton(f"🔙 {locale.get('menu_back', 'Back')}", callback_data="fmenu_back")]
         ])
         await query.edit_message_text(f"👤 {locale.get('ask_gender', 'Select preferred gender:')}", reply_markup=kb)
         return SELECT_GENDER
-    
+
     if data == "filter_region":
         kb = InlineKeyboardMarkup(
             [[InlineKeyboardButton(f"🌍 {r}", callback_data=f"fregion_{r}")] for r in REGIONS] +
@@ -423,7 +432,7 @@ async def select_filter_cb(update: Update, context):
         )
         await query.edit_message_text(f"🌍 {locale.get('ask_region', 'Select preferred region:')}", reply_markup=kb)
         return SELECT_REGION
-    
+
     if data == "filter_language":
         lang_labels = {'en': '🇬🇧 English', 'ar': '🇸🇦 العربية', 'hi': '🇮🇳 हिंदी', 'id': '🇮🇩 Indonesia'}
         kb = InlineKeyboardMarkup(
@@ -448,7 +457,7 @@ async def select_filter_cb(update: Update, context):
             reply_markup=get_filter_menu(lang, context, filters)
         )
         return SELECT_FILTER
-    
+
     if data.startswith("fregion_"):
         val = data.replace("fregion_", "")
         if val != "skip":
@@ -463,7 +472,7 @@ async def select_filter_cb(update: Update, context):
             reply_markup=get_filter_menu(lang, context, filters)
         )
         return SELECT_FILTER
-    
+
     if data.startswith("flanguage_"):
         val = data.replace("flanguage_", "")
         if val != "skip":
@@ -497,30 +506,30 @@ async def select_filter_cb(update: Update, context):
 async def do_search(update: Update, context):
     query = update.callback_query
     user_id = query.from_user.id
-    
+
     try:
         await update_user_profile_info(user_id, context)
     except Exception as e:
         logger.warning(f"Could not update profile for user {user_id}: {e}")
-    
+
     user = await get_user(user_id)
     lang = get_user_locale(user)
     from bot import load_locale
     locale = load_locale(lang)
-    
+
     if not user or not user.get('gender') or not user.get('region') or not user.get('country'):
         await query.answer(locale.get('profile_setup_required', 'Please complete your profile first!'), show_alert=True)
         await query.message.reply_text(f"📝 {locale.get('profile_setup_required', 'Please complete your profile first!')}")
         return await unified_profile_entry(update, context)
-    
+
     if await get_user_room(user_id):
         await query.answer(locale.get("already_in_room", "You are already in a chat!"), show_alert=True)
         return ConversationHandler.END
-    
+
     filters = dict(user.get("matching_preferences", {}))
-    
+
     await query.answer()
-    
+
     kb = InlineKeyboardMarkup([[
         InlineKeyboardButton(f"❌ {locale.get('cancel_search', 'Cancel')}", callback_data="cancel_search")
     ]])
@@ -528,7 +537,7 @@ async def do_search(update: Update, context):
         f"🔍 {locale.get('searching_partner', 'Searching with filters...')}",
         reply_markup=kb
     )
-    
+
     candidates = []
     for uid in users_online:
         if uid == user_id:
@@ -543,28 +552,28 @@ async def do_search(update: Update, context):
                 break
         if ok:
             candidates.append(uid)
-    
+
     if candidates:
         partner = random.choice(candidates)
         users_online.discard(user_id)
         users_online.discard(partner)
         room_id = await create_room(user_id, partner)
         await set_users_room_map(context, user_id, partner, room_id)
-        
+
         await query.edit_message_text(f"🎉 {locale.get('match_found', 'Match found!')}")
-        
+
         partner_obj = await get_user(partner)
         partner_lang = get_user_locale(partner_obj)
         partner_locale = load_locale(partner_lang)
         await context.bot.send_message(partner, f"🎉 {partner_locale.get('match_found', 'Match found!')}")
-        
+
         user1 = await get_user(user_id)
         user2 = await get_user(partner)
         admin_group = context.bot_data.get('ADMIN_GROUP_ID')
         if admin_group:
             room = await get_room(room_id)
             txt = get_admin_room_meta(room, user_id, partner, [user1, user2])
-            await context.bot.send_message(chat_id=admin_group, text=txt)
+            await context.bot.send_message(chat_id=admin_group, text=txt, parse_mode='HTML')
             for u in [user1, user2]:
                 for pid in u.get('profile_photos', [])[:10]:
                     try:
@@ -590,7 +599,7 @@ async def menu_callback_handler(update, context):
     locale = load_locale(lang)
     await query.answer()
     data = query.data
-    
+
     if data == "menu_find":
         await find_command(update, context)
     elif data == "menu_upgrade":
