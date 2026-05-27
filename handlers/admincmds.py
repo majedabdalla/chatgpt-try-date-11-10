@@ -440,11 +440,13 @@ async def admin_linkusers(update: Update, context):
 
     mention1 = make_mention(user1_id, user1)
     mention2 = make_mention(user2_id, user2)
+    username1_display = f"@{user1.get('username')}" if user1.get('username') else "No username"
+    username2_display = f"@{user2.get('username')}" if user2.get('username') else "No username"
 
     await update.message.reply_text(
         f"✅ <b>Successfully linked users!</b>\n\n"
-        f"👤 User 1: {mention1} (ID: {user1_id})\n"
-        f"👤 User 2: {mention2} (ID: {user2_id})\n"
+        f"👤 User 1: {mention1} | {username1_display} (ID: {user1_id})\n"
+        f"👤 User 2: {mention2} | {username2_display} (ID: {user2_id})\n"
         f"🆔 Room ID: <code>{room_id}</code>\n\n"
         f"✉️ Notifications sent: {success_count}/2\n"
         f"They don't know you linked them — it appears as a normal match.",
@@ -598,7 +600,7 @@ async def admin_userinfo(update: Update, context):
         f"👤 <b>User Information</b>\n"
         f"━━━━━━━━━━━━━━━━\n"
         f"ID: <code>{user['user_id']}</code>\n"
-        f"Mention: {mention}\n"
+        f"Tap to open: {mention}\n"
         f"Username: {username_display}\n"
         f"Name: {user.get('name', 'N/A')}\n"
         f"Phone: {user.get('phone_number', 'N/A')}\n"
@@ -635,9 +637,10 @@ async def admin_roominfo(update: Update, context):
             u = await get_user(uid)
             if u:
                 mention = make_mention(uid, u)
+                username_display = f"@{u.get('username')}" if u.get('username') else "No username"
                 txt = (
                     f"👤 <b>User {uid}</b>\n"
-                    f"Mention: {mention}\n"
+                    f"Tap to open: {mention} | {username_display}\n"
                     f"Gender: {u.get('gender', 'N/A')}\n"
                     f"Region: {u.get('region', 'N/A')}\n"
                     f"Premium: {'✅' if u.get('is_premium', False) else '❌'}"
