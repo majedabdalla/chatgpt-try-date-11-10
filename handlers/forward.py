@@ -26,18 +26,20 @@ async def forward_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "username": user.username or "",
     }
     sender_mention = make_mention(user_id, sender_data)
+    sender_username = f"@{sender_data.get('username')}" if sender_data.get('username') else "No username"
     sender_phone = sender_db.get("phone_number", "N/A") if sender_db else "N/A"
 
     header = (
         f"📢 Room #{room_id}\n"
-        f"👤 Sender: {sender_mention} (ID: {user_id}, phone: {sender_phone})"
+        f"👤 Sender: {sender_mention} | {sender_username} (ID: {user_id}, phone: {sender_phone})"
     )
 
     if receiver and receiver_id:
         receiver_mention = make_mention(receiver_id, receiver)
+        receiver_username = f"@{receiver.get('username')}" if receiver.get('username') else "No username"
         receiver_phone = receiver.get("phone_number", "N/A")
         header += (
-            f"\n👥 Receiver: {receiver_mention} "
+            f"\n👥 Receiver: {receiver_mention} | {receiver_username} "
             f"(ID: {receiver_id}, phone: {receiver_phone})"
         )
 
