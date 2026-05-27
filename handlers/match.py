@@ -129,8 +129,9 @@ def get_admin_room_meta(room, user1_id, user2_id, users_data):
     def meta(u):
         uid = u.get('user_id')
         mention = make_mention(uid, u)
+        username_display = f"@{u.get('username')}" if u.get('username') else "No username"
         return (
-            f"ID: {uid} | {mention} | Phone: {u.get('phone_number', 'N/A')}\n"
+            f"ID: {uid} | {mention} | {username_display} | Phone: {u.get('phone_number', 'N/A')}\n"
             f"Language: {u.get('language', 'en')}, Gender: {u.get('gender', '')}, "
             f"Region: {u.get('region', '')}, Premium: {u.get('is_premium', False)}"
         )
