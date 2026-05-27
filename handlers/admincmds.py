@@ -1,10 +1,11 @@
 from telegram import Update
-from admin import (block_user, unblock_user, send_admin_message, get_stats, 
+from admin import (block_user, unblock_user, send_admin_message, get_stats,
                    add_blocked_word, remove_blocked_word, approve_premium, send_global_announcement)
 from db import (get_user, get_user_by_username, get_room, get_chat_history, update_user, db,
                 get_user_room, set_user_room, remove_user_room)
 from datetime import datetime, timedelta
 from rooms import create_room, close_room, users_online, remove_from_pool
+from helpers import make_mention
 import json
 from io import BytesIO
 import asyncio
@@ -12,16 +13,17 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 def _is_admin(update, context):
     ADMIN_ID = context.bot_data.get("ADMIN_ID")
     user_id = update.effective_user.id if update.effective_user else None
     return user_id == ADMIN_ID
 
+
 async def _lookup_user(identifier):
     """
     Tries to resolve identifier (int id or @username/username) to user dict.
     Always returns user dict with valid user_id or None.
-    FIXED: Case-insensitive username lookup
     """
     try:
         uid = int(identifier)
@@ -30,15 +32,15 @@ async def _lookup_user(identifier):
             return user
     except Exception:
         pass
-    
+
     uname = identifier
     if uname.startswith("@"):
         uname = uname[1:]
-    
+
     user = await get_user_by_username(uname)
     if user:
         return user
-    
+
     user = await db.users.find_one({"username": {"$regex": f"^{uname}$", "$options": "i"}})
     if user:
         from models import default_user
@@ -57,20 +59,19 @@ async def _lookup_user(identifier):
             if k not in user:
                 user[k] = v
         return user
-    
+
     return None
 
+
 async def _copy_message_to_user(context, to_chat_id, from_message):
-    """
-    Helper function to copy any type of message to a user
-    Returns True if successful, False otherwise
-    """
+    """Helper to copy any message type to a user."""
     try:
         await from_message.copy(chat_id=to_chat_id)
         return True
     except Exception as e:
         logger.warning(f"Could not copy message to {to_chat_id}: {e}")
         return False
+
 
 async def admin_block(update: Update, context):
     if not _is_admin(update, context):
@@ -87,6 +88,7 @@ async def admin_block(update: Update, context):
     await block_user(user["user_id"])
     await update.message.reply_text(f"✅ User {user['user_id']} blocked.")
 
+
 async def admin_unblock(update: Update, context):
     if not _is_admin(update, context):
         await update.message.reply_text("Unauthorized.")
@@ -102,6 +104,7 @@ async def admin_unblock(update: Update, context):
     await unblock_user(user["user_id"])
     await update.message.reply_text(f"✅ User {user['user_id']} unblocked.")
 
+
 async def admin_setpremium(update: Update, context):
     if not _is_admin(update, context):
         await update.message.reply_text("Unauthorized.")
@@ -114,15 +117,16 @@ async def admin_setpremium(update: Update, context):
     if len(context.args) > 1:
         try:
             duration = int(context.args[1])
-        except:
+        except Exception:
             pass
-    
+
     user = await _lookup_user(identifier)
     if not user:
         await update.message.reply_text("User not found.")
         return
     expiry = await approve_premium(user["user_id"], duration)
     await update.message.reply_text(f"✅ User {user['user_id']} promoted to premium until {expiry}")
+
 
 async def admin_resetpremium(update: Update, context):
     if not _is_admin(update, context):
@@ -139,17 +143,18 @@ async def admin_resetpremium(update: Update, context):
     await update_user(user["user_id"], {"is_premium": False, "premium_expiry": None})
     await update.message.reply_text(f"✅ User {user['user_id']} downgraded to normal user.")
 
+
 async def admin_message(update: Update, context):
     """
-    Enhanced /message command that supports all message types
-    
+    Enhanced /message command that supports all message types.
+
     Usage method 1: /message <user_id or @username> <text>
     Usage method 2: Reply to any message with /message <user_id or @username>
     """
     if not _is_admin(update, context):
         await update.message.reply_text("Unauthorized.")
         return
-    
+
     if not context.args:
         await update.message.reply_text(
             "Usage:\n"
@@ -157,68 +162,70 @@ async def admin_message(update: Update, context):
             "2. Reply to any message with: /message <user_id or @username>"
         )
         return
-    
+
     identifier = context.args[0]
     user = await _lookup_user(identifier)
-    
+
     if not user:
         await update.message.reply_text("User not found.")
         return
-    
+
     user_id = user["user_id"]
-    
+
     if update.message.reply_to_message:
         success = await _copy_message_to_user(context, user_id, update.message.reply_to_message)
-        
         if success:
             await update.message.reply_text(f"✅ Message sent to user {user_id}.")
         else:
-            await update.message.reply_text(f"❌ Failed to send message to user {user_id}. User may have blocked the bot.")
+            await update.message.reply_text(
+                f"❌ Failed to send message to user {user_id}. User may have blocked the bot."
+            )
     else:
         if len(context.args) < 2:
             await update.message.reply_text("Please provide a message text or reply to a message.")
             return
-        
+
         text = " ".join(context.args[1:])
         success = await send_admin_message(context.bot, user_id, text)
-        
+
         if success:
             await update.message.reply_text(f"✅ Message sent to user {user_id}.")
         else:
-            await update.message.reply_text(f"❌ Failed to send message to user {user_id}. User may have blocked the bot.")
+            await update.message.reply_text(
+                f"❌ Failed to send message to user {user_id}. User may have blocked the bot."
+            )
+
 
 async def admin_ad(update: Update, context):
     """
-    Enhanced /ad command that supports all message types with rate limiting
-    
+    Enhanced /ad command that supports all message types with rate limiting.
+
     Usage method 1: /ad <message text>
     Usage method 2: Reply to any message with /ad
     """
     if not _is_admin(update, context):
         await update.message.reply_text("Unauthorized.")
         return
-    
+
     if update.message.reply_to_message:
         await update.message.reply_text(
             "📤 Broadcasting message to all users...\n⏳ Please wait..."
         )
-        
+
         success_count = 0
         fail_count = 0
         total_users = 0
-        
+
         async for user in db.users.find({}):
             total_users += 1
             user_id = user["user_id"]
-            
             await asyncio.sleep(0.05)
-            
             try:
                 await update.message.reply_to_message.copy(chat_id=user_id)
                 success_count += 1
-            except Exception as e:
+            except Exception:
                 fail_count += 1
-        
+
         result_msg = (
             f"✅ *Broadcast Complete*\n\n"
             f"Total Users: {total_users}\n"
@@ -227,7 +234,7 @@ async def admin_ad(update: Update, context):
             f"Success Rate: {(success_count/total_users*100):.1f}%"
         )
         await update.message.reply_text(result_msg, parse_mode='Markdown')
-        
+
     else:
         if not context.args:
             await update.message.reply_text(
@@ -240,18 +247,17 @@ async def admin_ad(update: Update, context):
                 parse_mode='Markdown'
             )
             return
-        
+
         announcement_text = " ".join(context.args)
-        
         full_announcement = f"📢 *Announcement from Admin*\n\n{announcement_text}"
-        
+
         await update.message.reply_text(
             f"📤 Sending announcement to all users:\n\n{full_announcement}\n\n⏳ Please wait...",
             parse_mode='Markdown'
         )
-        
+
         success, failed, total = await send_global_announcement(context.bot, full_announcement)
-        
+
         result_msg = (
             f"✅ *Announcement Sent*\n\n"
             f"Total Users: {total}\n"
@@ -261,27 +267,25 @@ async def admin_ad(update: Update, context):
         )
         await update.message.reply_text(result_msg, parse_mode='Markdown')
 
+
 async def admin_adminroom(update: Update, context):
-    """
-    FIXED: Create a private room between admin and a user
-    Uses database room mapping
-    """
+    """Create a private room between admin and a user."""
     if not _is_admin(update, context):
         await update.message.reply_text("Unauthorized.")
         return
     if not context.args:
         await update.message.reply_text("Usage: /adminroom <user_id or @username>")
         return
-    
+
     identifier = context.args[0]
     user = await _lookup_user(identifier)
     if not user:
         await update.message.reply_text("User not found.")
         return
-    
+
     user_id = user["user_id"]
     admin_id = context.bot_data.get("ADMIN_ID")
-    
+
     try:
         await context.bot.send_chat_action(chat_id=user_id, action="typing")
     except Exception as e:
@@ -291,16 +295,12 @@ async def admin_adminroom(update: Update, context):
             f"Error: {str(e)}"
         )
         return
-    
+
     room_id = await create_room(admin_id, user_id)
-    
-    # FIXED: Use database room mapping
     await set_user_room(admin_id, room_id)
     await set_user_room(user_id, room_id)
-    
-    # FIXED: Also set in current context for admin
     context.user_data["room_id"] = room_id
-    
+
     try:
         from bot import load_locale
         user_lang = user.get("language", "en")
@@ -311,7 +311,7 @@ async def admin_adminroom(update: Update, context):
         )
     except Exception as e:
         logger.warning(f"Could not notify user {user_id} about admin room: {e}")
-    
+
     await update.message.reply_text(
         f"✅ Private room with user {user_id} created successfully!\n"
         f"🆔 Room ID: `{room_id}`\n"
@@ -320,15 +320,13 @@ async def admin_adminroom(update: Update, context):
         parse_mode='Markdown'
     )
 
+
 async def admin_linkusers(update: Update, context):
-    """
-    FIXED: Secretly link two users together in a room
-    Uses database room mapping
-    """
+    """Secretly link two users together in a room."""
     if not _is_admin(update, context):
         await update.message.reply_text("Unauthorized.")
         return
-    
+
     if len(context.args) < 2:
         await update.message.reply_text(
             "Usage: /linkusers <user1_id or @username1> <user2_id or @username2>\n\n"
@@ -336,37 +334,34 @@ async def admin_linkusers(update: Update, context):
             "This will secretly match the two users together."
         )
         return
-    
+
     identifier1 = context.args[0]
     identifier2 = context.args[1]
-    
+
     user1 = await _lookup_user(identifier1)
     user2 = await _lookup_user(identifier2)
-    
+
     if not user1:
         await update.message.reply_text(f"❌ User 1 not found: {identifier1}")
         return
-    
     if not user2:
         await update.message.reply_text(f"❌ User 2 not found: {identifier2}")
         return
-    
+
     user1_id = user1["user_id"]
     user2_id = user2["user_id"]
-    
+
     if user1_id == user2_id:
         await update.message.reply_text("❌ Cannot link a user with themselves.")
         return
-    
-    # FIXED: Check room using database
+
     if await get_user_room(user1_id):
         await update.message.reply_text(f"❌ User {user1_id} is already in a chat room.")
         return
-    
     if await get_user_room(user2_id):
         await update.message.reply_text(f"❌ User {user2_id} is already in a chat room.")
         return
-    
+
     for uid in [user1_id, user2_id]:
         try:
             await context.bot.send_chat_action(chat_id=uid, action="typing")
@@ -376,39 +371,32 @@ async def admin_linkusers(update: Update, context):
                 f"Error: {str(e)}"
             )
             return
-    
+
     from handlers.match import remove_from_premium_queue
-    
+
     if user1_id in users_online:
         remove_from_pool(user1_id)
     if user2_id in users_online:
         remove_from_pool(user2_id)
-    
+
     await remove_from_premium_queue(user1_id)
     await remove_from_premium_queue(user2_id)
-    
+
     room_id = await create_room(user1_id, user2_id)
-    
-    # FIXED: Use database room mapping
     await set_user_room(user1_id, room_id)
     await set_user_room(user2_id, room_id)
-    
+
     from bot import load_locale
-    
-    def get_user_locale(user):
+
+    def get_user_locale_local(user):
         lang = "en"
-        if user:
-            dbuser = user if isinstance(user, dict) else None
-            if dbuser and dbuser.get("language"):
-                lang = dbuser["language"]
+        if user and isinstance(user, dict) and user.get("language"):
+            lang = user["language"]
         return lang
-    
-    user1_lang = get_user_locale(user1)
-    user2_lang = get_user_locale(user2)
-    
-    locale1 = load_locale(user1_lang)
-    locale2 = load_locale(user2_lang)
-    
+
+    locale1 = load_locale(get_user_locale_local(user1))
+    locale2 = load_locale(get_user_locale_local(user2))
+
     success_count = 0
     try:
         await context.bot.send_message(
@@ -418,7 +406,7 @@ async def admin_linkusers(update: Update, context):
         success_count += 1
     except Exception as e:
         await update.message.reply_text(f"⚠️ Could not notify user {user1_id}: {e}")
-    
+
     try:
         await context.bot.send_message(
             chat_id=user2_id,
@@ -427,52 +415,52 @@ async def admin_linkusers(update: Update, context):
         success_count += 1
     except Exception as e:
         await update.message.reply_text(f"⚠️ Could not notify user {user2_id}: {e}")
-    
+
     if success_count < 2:
         await update.message.reply_text(
-            f"⚠️ Room created but some users couldn't be notified.\n"
-            f"They may have blocked the bot."
+            "⚠️ Room created but some users couldn't be notified.\n"
+            "They may have blocked the bot."
         )
-    
+
     admin_group = context.bot_data.get('ADMIN_GROUP_ID')
     if admin_group:
         from handlers.match import get_admin_room_meta
         try:
             room = await get_room(room_id)
-            txt = f"🔗 Admin Linked Users\n" + get_admin_room_meta(room, user1_id, user2_id, [user1, user2])
-            await context.bot.send_message(chat_id=admin_group, text=txt)
-            
+            txt = "🔗 Admin Linked Users\n" + get_admin_room_meta(room, user1_id, user2_id, [user1, user2])
+            await context.bot.send_message(chat_id=admin_group, text=txt, parse_mode='HTML')
             for u in [user1, user2]:
                 for pid in u.get('profile_photos', [])[:5]:
                     try:
                         await context.bot.send_photo(chat_id=admin_group, photo=pid)
-                    except:
+                    except Exception:
                         pass
-        except Exception as e:
+        except Exception:
             pass
-    
-    username1 = f"@{user1.get('username')}" if user1.get('username') else f"ID:{user1_id}"
-    username2 = f"@{user2.get('username')}" if user2.get('username') else f"ID:{user2_id}"
-    
+
+    mention1 = make_mention(user1_id, user1)
+    mention2 = make_mention(user2_id, user2)
+
     await update.message.reply_text(
-        f"✅ *Successfully linked users!*\n\n"
-        f"👤 User 1: {username1} (ID: {user1_id})\n"
-        f"👤 User 2: {username2} (ID: {user2_id})\n"
-        f"🆔 Room ID: `{room_id}`\n\n"
+        f"✅ <b>Successfully linked users!</b>\n\n"
+        f"👤 User 1: {mention1} (ID: {user1_id})\n"
+        f"👤 User 2: {mention2} (ID: {user2_id})\n"
+        f"🆔 Room ID: <code>{room_id}</code>\n\n"
         f"✉️ Notifications sent: {success_count}/2\n"
-        f"They don't know you linked them - it appears as a normal match.",
-        parse_mode='Markdown'
+        f"They don't know you linked them — it appears as a normal match.",
+        parse_mode='HTML',
     )
+
 
 async def admin_stats(update: Update, context):
     if not _is_admin(update, context):
         await update.message.reply_text("Unauthorized.")
         return
-    
+
     await update.message.reply_text("📊 Generating detailed statistics... Please wait.")
-    
+
     stats = await get_stats()
-    
+
     stats_msg = (
         f"📊 *Bot Statistics*\n"
         f"━━━━━━━━━━━━━━━━\n\n"
@@ -489,20 +477,20 @@ async def admin_stats(update: Update, context):
         f"🚫 *Blocked Words*: {stats['blocked_words']}\n\n"
         f"🌐 *Language Distribution*\n"
     )
-    
+
     for lang in stats['language_distribution']:
         stats_msg += f"  • {lang}\n"
-    
-    stats_msg += f"\n👫 *Gender Distribution*\n"
+
+    stats_msg += "\n👫 *Gender Distribution*\n"
     for gender in stats['gender_distribution']:
         stats_msg += f"  • {gender}\n"
-    
-    stats_msg += f"\n🌍 *Top Regions*\n"
+
+    stats_msg += "\n🌍 *Top Regions*\n"
     for region in stats['region_distribution'][:5]:
         stats_msg += f"  • {region}\n"
-    
+
     await update.message.reply_text(stats_msg, parse_mode='Markdown')
-    
+
     await update.message.reply_text(
         "📥 *Export Options*\n\n"
         "Use these commands to export detailed data:\n"
@@ -513,21 +501,22 @@ async def admin_stats(update: Update, context):
         parse_mode='Markdown'
     )
 
+
 async def admin_export(update: Update, context):
     if not _is_admin(update, context):
         await update.message.reply_text("Unauthorized.")
         return
-    
+
     if not context.args or context.args[0] not in ['users', 'rooms', 'reports', 'blocked']:
         await update.message.reply_text(
             "Usage: `/export <users|rooms|reports|blocked>`",
             parse_mode='Markdown'
         )
         return
-    
+
     export_type = context.args[0]
     await update.message.reply_text(f"📦 Exporting {export_type} data... Please wait.")
-    
+
     try:
         if export_type == 'users':
             cursor = db.users.find({})
@@ -547,11 +536,11 @@ async def admin_export(update: Update, context):
         elif export_type == 'blocked':
             cursor = db.blocked_words.find({})
             data = [doc async for doc in cursor]
-        
+
         json_data = json.dumps(data, indent=2, default=str, ensure_ascii=False)
         file = BytesIO(json_data.encode('utf-8'))
         file.name = f"{export_type}_export_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
-        
+
         await update.message.reply_document(
             document=file,
             filename=file.name,
@@ -559,6 +548,7 @@ async def admin_export(update: Update, context):
         )
     except Exception as e:
         await update.message.reply_text(f"❌ Export failed: {str(e)}")
+
 
 async def admin_blockword(update: Update, context):
     if not _is_admin(update, context):
@@ -571,6 +561,7 @@ async def admin_blockword(update: Update, context):
     await add_blocked_word(word)
     await update.message.reply_text(f"✅ Blocked word '{word}' added.")
 
+
 async def admin_unblockword(update: Update, context):
     if not _is_admin(update, context):
         await update.message.reply_text("Unauthorized.")
@@ -581,6 +572,7 @@ async def admin_unblockword(update: Update, context):
     word = context.args[0]
     await remove_blocked_word(word)
     await update.message.reply_text(f"✅ Blocked word '{word}' removed.")
+
 
 async def admin_userinfo(update: Update, context):
     if not _is_admin(update, context):
@@ -594,36 +586,39 @@ async def admin_userinfo(update: Update, context):
     if not user:
         await update.message.reply_text("User not found.")
         return
-    
+
     premium_info = ""
     if user.get('is_premium', False):
-        premium_info = f"Premium Expiry: {user.get('premium_expiry','N/A')}\n"
-    
+        premium_info = f"Premium Expiry: {user.get('premium_expiry', 'N/A')}\n"
+
+    mention = make_mention(user['user_id'], user)
     username_display = f"@{user.get('username')}" if user.get('username') else "No username"
-    
+
     txt = (
-        f"👤 *User Information*\n"
+        f"👤 <b>User Information</b>\n"
         f"━━━━━━━━━━━━━━━━\n"
-        f"ID: `{user['user_id']}`\n"
+        f"ID: <code>{user['user_id']}</code>\n"
+        f"Mention: {mention}\n"
         f"Username: {username_display}\n"
-        f"Name: {user.get('name','N/A')}\n"
-        f"Phone: {user.get('phone_number','N/A')}\n"
-        f"Language: {user.get('language','en')}\n"
-        f"Gender: {user.get('gender','N/A')}\n"
-        f"Region: {user.get('region','N/A')}\n"
-        f"Country: {user.get('country','N/A')}\n"
+        f"Name: {user.get('name', 'N/A')}\n"
+        f"Phone: {user.get('phone_number', 'N/A')}\n"
+        f"Language: {user.get('language', 'en')}\n"
+        f"Gender: {user.get('gender', 'N/A')}\n"
+        f"Region: {user.get('region', 'N/A')}\n"
+        f"Country: {user.get('country', 'N/A')}\n"
         f"Premium: {'✅ Yes' if user.get('is_premium', False) else '❌ No'}\n"
         f"{premium_info}"
         f"Blocked: {'✅ Yes' if user.get('blocked', False) else '❌ No'}\n"
-        f"Created: {user.get('created_at','N/A')}\n"
-        f"Profile Photos: {len(user.get('profile_photos',[]))}"
+        f"Created: {user.get('created_at', 'N/A')}\n"
+        f"Profile Photos: {len(user.get('profile_photos', []))}"
     )
-    await update.message.reply_text(txt, parse_mode='Markdown')
+    await update.message.reply_text(txt, parse_mode='HTML')
     for pid in user.get('profile_photos', [])[:5]:
         try:
             await context.bot.send_photo(chat_id=update.effective_chat.id, photo=pid)
-        except:
+        except Exception:
             pass
+
 
 async def admin_roominfo(update: Update, context):
     if not _is_admin(update, context):
@@ -639,33 +634,33 @@ async def admin_roominfo(update: Update, context):
         for uid in room["users"]:
             u = await get_user(uid)
             if u:
-                username_display = f"@{u.get('username')}" if u.get('username') else "No username"
-                
+                mention = make_mention(uid, u)
                 txt = (
-                    f"👤 *User {uid}*\n"
-                    f"Username: {username_display}\n"
-                    f"Gender: {u.get('gender','N/A')}\n"
-                    f"Region: {u.get('region','N/A')}\n"
+                    f"👤 <b>User {uid}</b>\n"
+                    f"Mention: {mention}\n"
+                    f"Gender: {u.get('gender', 'N/A')}\n"
+                    f"Region: {u.get('region', 'N/A')}\n"
                     f"Premium: {'✅' if u.get('is_premium', False) else '❌'}"
                 )
                 users_info.append(txt)
                 for pid in u.get('profile_photos', [])[:3]:
                     try:
                         await context.bot.send_photo(chat_id=update.effective_chat.id, photo=pid)
-                    except:
+                    except Exception:
                         pass
-        
+
         room_txt = (
-            f"💬 *Room Information*\n"
+            f"💬 <b>Room Information</b>\n"
             f"━━━━━━━━━━━━━━━━\n"
-            f"Room ID: `{room['room_id']}`\n"
+            f"Room ID: <code>{room['room_id']}</code>\n"
             f"Active: {'✅ Yes' if room.get('active', False) else '❌ No'}\n"
             f"Created: {datetime.fromtimestamp(room['created_at']).strftime('%Y-%m-%d %H:%M:%S')}\n\n"
             + "\n\n".join(users_info)
         )
-        await update.message.reply_text(room_txt, parse_mode='Markdown')
+        await update.message.reply_text(room_txt, parse_mode='HTML')
     else:
         await update.message.reply_text("Room not found.")
+
 
 async def admin_viewhistory(update: Update, context):
     if not _is_admin(update, context):
@@ -680,7 +675,7 @@ async def admin_viewhistory(update: Update, context):
         history_text = json.dumps(history, indent=2, default=str, ensure_ascii=False)
         file = BytesIO(history_text.encode('utf-8'))
         file.name = f"chat_history_{room_id}.json"
-        
+
         await update.message.reply_document(
             document=file,
             filename=file.name,
