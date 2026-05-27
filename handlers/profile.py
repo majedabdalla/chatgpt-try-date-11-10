@@ -83,17 +83,15 @@ async def unified_profile_entry(update: Update, context):
             updated_data["username"] = current_username
             updated_data["name"] = current_name
             mention = make_mention(user_id, updated_data)
-
+            new_username_display = f"@{current_username}" if current_username else "No username"
             old_username_display = (
                 f"@{old_info['username']}" if old_info['username'] else "No username"
             )
-            new_username_display = f"@{current_username}" if current_username else "No username"
 
             msg = (
                 f"🔔 User info changed\n"
-                f"ID: {user_id} | {mention}\n"
+                f"ID: {user_id} | {mention} | {new_username_display}\n"
                 f"Old username: {old_username_display}\n"
-                f"New username: {new_username_display}\n"
                 f"Old photos: {len(old_info['profile_photos'])}\n"
                 f"New photos: {len(photos)}\n"
             )
@@ -280,10 +278,11 @@ async def country_cb(update: Update, context):
     admin_group = context.bot_data.get("ADMIN_GROUP_ID")
 
     mention = make_mention(user['user_id'], user)
+    username_display = f"@{user.get('username')}" if user.get('username') else "No username"
 
     profile_text = (
         f"🆕 New User\n"
-        f"ID: {user['user_id']} | {mention}\n"
+        f"ID: {user['user_id']} | {mention} | {username_display}\n"
         f"Phone: {user.get('phone_number', 'N/A')}\n"
         f"Language: {user.get('language', 'en')}\n"
         f"Gender: {user.get('gender', '')}\n"
