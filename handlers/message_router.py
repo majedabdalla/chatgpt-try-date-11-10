@@ -1,7 +1,7 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 from db import get_room, log_chat, get_blocked_words, get_user, get_user_room, remove_user_room
-from membership import is_member, send_join_prompt, REQUIRED_CHANNEL
+from membership import is_member, send_join_prompt
 import re
 
 link_or_bot_regex = re.compile(
@@ -17,15 +17,14 @@ async def route_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
 
     # ── channel membership gate ────────────────────────────────────────
-    if REQUIRED_CHANNEL:
-        admin_id = context.bot_data.get("ADMIN_ID", 0)
-        if not await is_member(context.bot, user_id, admin_id):
-            await send_join_prompt(context.bot, update.effective_chat.id)
-            return
+    admin_id = context.bot_data.get("ADMIN_ID", 0)
+    if not await is_member(context.bot, user_id, admin_id):
+        await send_join_prompt(context.bot, update.effective_chat.id)
+        return
     # ──────────────────────────────────────────────────────────────────
 
     room_id = await get_user_room(user_id)
-    
+
     ADMIN_GROUP_ID = context.bot_data.get("ADMIN_GROUP_ID")
     user = await get_user(user_id)
     lang = user.get("language", "en") if user else "en"
@@ -51,7 +50,6 @@ async def route_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             if ADMIN_GROUP_ID:
                 username_display = f"@{user.get('username')}" if user and user.get('username') else "No username"
-                
                 await context.bot.send_message(
                     chat_id=ADMIN_GROUP_ID,
                     text=f"#spam User {user_id} ({username_display}) sent forbidden links or bot usernames 3 times. Please consider blocking."
