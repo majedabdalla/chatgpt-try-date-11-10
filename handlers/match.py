@@ -7,10 +7,10 @@ from db import (
 from rooms import add_to_pool, remove_from_pool, users_online, create_room, close_room
 from handlers.profile import unified_profile_entry, ASK_GENDER
 from helpers import update_user_profile_info, make_mention
+from membership import is_member, send_join_prompt
 import random
 from datetime import datetime
 import logging
-from membership import is_member, send_join_prompt, REQUIRED_CHANNEL
 
 logger = logging.getLogger(__name__)
 
@@ -187,13 +187,12 @@ async def find_command(update: Update, context):
     user_id = update.effective_user.id
 
     # ── channel membership gate ────────────────────────────────────────
-    if REQUIRED_CHANNEL:
-        admin_id = context.bot_data.get("ADMIN_ID", 0)
-        if not await is_member(context.bot, user_id, admin_id):
-            if hasattr(update, 'callback_query') and update.callback_query:
-                await update.callback_query.answer()
-            await send_join_prompt(context.bot, update.effective_chat.id)
-            return
+    admin_id = context.bot_data.get("ADMIN_ID", 0)
+    if not await is_member(context.bot, user_id, admin_id):
+        if hasattr(update, 'callback_query') and update.callback_query:
+            await update.callback_query.answer()
+        await send_join_prompt(context.bot, update.effective_chat.id)
+        return
     # ──────────────────────────────────────────────────────────────────
 
     try:
@@ -520,12 +519,11 @@ async def do_search(update: Update, context):
     user_id = query.from_user.id
 
     # ── channel membership gate ────────────────────────────────────────
-    if REQUIRED_CHANNEL:
-        admin_id = context.bot_data.get("ADMIN_ID", 0)
-        if not await is_member(context.bot, user_id, admin_id):
-            await query.answer()
-            await send_join_prompt(context.bot, query.message.chat_id)
-            return ConversationHandler.END
+    admin_id = context.bot_data.get("ADMIN_ID", 0)
+    if not await is_member(context.bot, user_id, admin_id):
+        await query.answer()
+        await send_join_prompt(context.bot, query.message.chat_id)
+        return ConversationHandler.END
     # ──────────────────────────────────────────────────────────────────
 
     try:
