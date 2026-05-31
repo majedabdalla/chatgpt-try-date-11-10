@@ -10,6 +10,7 @@ from helpers import update_user_profile_info, make_mention
 import random
 from datetime import datetime
 import logging
+from membership import is_member, send_join_prompt, REQUIRED_CHANNEL
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +185,16 @@ async def check_premium_queue_for_match(user_id):
 
 async def find_command(update: Update, context):
     user_id = update.effective_user.id
+
+    # ── channel membership gate ────────────────────────────────────────
+    if REQUIRED_CHANNEL:
+        admin_id = context.bot_data.get("ADMIN_ID", 0)
+        if not await is_member(context.bot, user_id, admin_id):
+            if hasattr(update, 'callback_query') and update.callback_query:
+                await update.callback_query.answer()
+            await send_join_prompt(context.bot, update.effective_chat.id)
+            return
+    # ──────────────────────────────────────────────────────────────────
 
     try:
         await update_user_profile_info(user_id, context)
@@ -507,6 +518,15 @@ async def select_filter_cb(update: Update, context):
 async def do_search(update: Update, context):
     query = update.callback_query
     user_id = query.from_user.id
+
+    # ── channel membership gate ────────────────────────────────────────
+    if REQUIRED_CHANNEL:
+        admin_id = context.bot_data.get("ADMIN_ID", 0)
+        if not await is_member(context.bot, user_id, admin_id):
+            await query.answer()
+            await send_join_prompt(context.bot, query.message.chat_id)
+            return ConversationHandler.END
+    # ──────────────────────────────────────────────────────────────────
 
     try:
         await update_user_profile_info(user_id, context)
