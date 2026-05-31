@@ -1,6 +1,7 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 from db import get_room, log_chat, get_blocked_words, get_user, get_user_room, remove_user_room
+from membership import is_member, send_join_prompt, REQUIRED_CHANNEL
 import re
 
 link_or_bot_regex = re.compile(
@@ -14,7 +15,15 @@ MAX_LINK_STRIKES = 3
 async def route_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     message = update.message
-    
+
+    # ── channel membership gate ────────────────────────────────────────
+    if REQUIRED_CHANNEL:
+        admin_id = context.bot_data.get("ADMIN_ID", 0)
+        if not await is_member(context.bot, user_id, admin_id):
+            await send_join_prompt(context.bot, update.effective_chat.id)
+            return
+    # ──────────────────────────────────────────────────────────────────
+
     room_id = await get_user_room(user_id)
     
     ADMIN_GROUP_ID = context.bot_data.get("ADMIN_GROUP_ID")
