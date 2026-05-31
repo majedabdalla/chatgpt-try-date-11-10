@@ -15,8 +15,10 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 logger = logging.getLogger(__name__)
 
-# Read once at import time; changing the env var requires a bot restart.
-REQUIRED_CHANNEL: str = os.getenv("REQUIRED_CHANNEL", "").strip()
+
+def _get_channel() -> str:
+    """Read REQUIRED_CHANNEL fresh every call — safe regardless of import order."""
+    return os.getenv("REQUIRED_CHANNEL", "").strip()
 
 
 def _channel_url(channel: str) -> str:
@@ -38,14 +40,13 @@ async def is_member(bot, user_id: int, admin_id: int) -> bool:
       • get_chat_member status is member / administrator / creator
       • get_chat_member raised any exception (fail-open / silent)
     """
-    if not REQUIRED_CHANNEL:
+    channel = _get_channel()
+    if not channel:
         return True
     if user_id == admin_id:
         return True
     try:
-        member = await bot.get_chat_member(
-            chat_id=REQUIRED_CHANNEL, user_id=user_id
-        )
+        member = await bot.get_chat_member(chat_id=channel, user_id=user_id)
         return member.status in ("member", "administrator", "creator")
     except Exception as exc:
         logger.warning("Membership check failed for user %s: %s", user_id, exc)
@@ -57,10 +58,11 @@ async def send_join_prompt(bot, chat_id: int) -> None:
     Send the 'please join first' message with an inline Join button.
     Safe to call even when REQUIRED_CHANNEL is not configured (no-op).
     """
-    if not REQUIRED_CHANNEL:
+    channel = _get_channel()
+    if not channel:
         return
     kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("📢 Join Channel", url=_channel_url(REQUIRED_CHANNEL))
+        InlineKeyboardButton("📢 Join Channel", url=_channel_url(channel))
     ]])
     await bot.send_message(
         chat_id=chat_id,
