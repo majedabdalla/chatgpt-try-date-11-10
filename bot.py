@@ -34,10 +34,14 @@ from handlers.referral import show_referral_info, process_referral, admin_check_
 from admin import downgrade_expired_premium
 from handlers.message_router import route_message
 from rooms import users_online
+from gemini_client import GeminiTranslator
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 ADMIN_GROUP_ID = int(os.getenv("ADMIN_GROUP_ID"))
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_TIMEOUT_SECONDS = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "20"))
 LOCALE_DIR = os.path.join(os.path.dirname(__file__), "locales")
 
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -352,6 +356,18 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.bot_data["ADMIN_GROUP_ID"] = ADMIN_GROUP_ID
     app.bot_data["ADMIN_ID"] = ADMIN_ID
+    # Shared Gemini translator, built once and reused across every handler
+    # via context.bot_data (same pattern as ADMIN_GROUP_ID/ADMIN_ID).
+    if GEMINI_API_KEY:
+        app.bot_data["translator"] = GeminiTranslator(
+            api_key=GEMINI_API_KEY,
+            model=GEMINI_MODEL,
+            timeout_seconds=GEMINI_TIMEOUT_SECONDS,
+        )
+        logger.info(f"🌐 Gemini translator initialized (model={GEMINI_MODEL})")
+    else:
+        app.bot_data["translator"] = None
+        logger.warning("⚠️ GEMINI_API_KEY not set — admin log translations will show [Unavailable]")
 
     app.post_init = startup
     app.post_shutdown = shutdown
