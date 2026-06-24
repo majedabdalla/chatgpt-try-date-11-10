@@ -1,3 +1,9 @@
+import logging
+from html import escape as html_escape
+from gemini_client import TranslationError
+
+logger = logging.getLogger(__name__)
+
 from telegram import Update
 from telegram.ext import ContextTypes
 from db import get_room, get_user, get_user_room
@@ -47,7 +53,27 @@ async def forward_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # --- Forward the actual message content ---
     if update.message.text:
-        msg = f"{header}\n💬 Message: {update.message.text}"
+        original_text = update.message.text
+
+        # Translate before sending the log so the translation lands in
+        # the SAME admin message. A translation failure never drops the
+        # underlying log -- it just falls back to "[Unavailable]".
+        translator = context.bot_data.get("translator")
+        translation = "[Unavailable]"
+        if translator is not None:
+            try:
+                translation = await translator.translate(original_text)
+            except TranslationError as e:
+                logger.warning(f"Gemini translation failed for room {room_id}: {e}")
+                translation = "[Unavailable]"
+        else:
+            logger.warning("Gemini translator not initialized; skipping translation.")
+
+        msg = (
+            f"{header}\n"
+            f"💬 Message: {original_text}\n"
+            f"🗣️ Translation: {html_escape(translation)}"
+        )
         await context.bot.send_message(
             chat_id=admin_group_id, text=msg, parse_mode='HTML'
         )
