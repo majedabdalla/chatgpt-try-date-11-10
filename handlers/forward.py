@@ -59,13 +59,13 @@ async def forward_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # the SAME admin message. A translation failure never drops the
         # underlying log -- it just falls back to "[Unavailable]".
         translator = context.bot_data.get("translator")
-        translation = "[Unavailable]"
+        translation = "[Unavailable: translator not initialized]"
         if translator is not None:
             try:
                 translation = await translator.translate(original_text)
             except TranslationError as e:
                 logger.warning(f"Gemini translation failed for room {room_id}: {e}")
-                translation = "[Unavailable]"
+                translation = f"[Unavailable: {e}]"
         else:
             logger.warning("Gemini translator not initialized; skipping translation.")
 
@@ -148,4 +148,4 @@ async def forward_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"Type: {type(update.message)}\n{update.message}"
                 ),
                 parse_mode='HTML',
-            )
+        )
