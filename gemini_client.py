@@ -1,15 +1,24 @@
 """
 gemini_client.py
 -----------------
-Async Gemini translation client using google-genai's client.aio interface.
+Async translation client. Originally built for Gemini; now backed by Groq's
+OpenAI-compatible chat completions API for a much more generous free tier.
+
+The class name, constructor signature, and translate() interface are kept
+identical to the original Gemini-based version on purpose -- bot.py and
+handlers/forward.py import GeminiTranslator and call translator.translate()
+without any awareness of which provider is behind it. Swapping providers
+again later only means editing this file.
+
+Despite the name, GEMINI_API_KEY / GEMINI_MODEL env vars now hold your
+Groq credentials -- see the Railway env var notes at the bottom of this file.
 """
 
 import asyncio
 import logging
 from typing import Optional
 
-from google import genai
-from google.genai import types
+from groq import AsyncGroq
 
 logger = logging.getLogger(__name__)
 
@@ -35,15 +44,28 @@ _SYSTEM_INSTRUCTION = (
 _TEMPERATURE = 0.3
 _MAX_OUTPUT_TOKENS = 512
 
+# Groq model to fall back to if the configured model name looks like a
+# leftover Gemini model string (e.g. someone forgot to update GEMINI_MODEL
+# after switching providers). Llama 3.3 70B is a solid default for this
+# kind of casual-slang translation workload.
+_DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile"
+
 
 class TranslationError(Exception):
     """Raised whenever a translation could not be produced."""
 
 
 class GeminiTranslator:
+    """Name kept for backwards compatibility with bot.py's import.
+    Internally this is now a Groq-backed translator.
+    """
+
     def __init__(self, api_key: str, model: str, timeout_seconds: float = 20.0) -> None:
-        self._client = genai.Client(api_key=api_key)
-        self._model = model
+        self._client = AsyncGroq(api_key=api_key)
+        # If GEMINI_MODEL still has an old "gemini-..." value left over in
+        # Railway, fall back to a sane Groq default instead of sending a
+        # request Groq can't possibly serve.
+        self._model = model if model and not model.lower().startswith("gemini") else _DEFAULT_GROQ_MODEL
         self._timeout_seconds = timeout_seconds
 
     async def translate(self, text: str) -> str:
@@ -53,46 +75,28 @@ class GeminiTranslator:
 
         try:
             response = await asyncio.wait_for(
-                self._client.aio.models.generate_content(
+                self._client.chat.completions.create(
                     model=self._model,
-                    contents=cleaned,
-                    config=types.GenerateContentConfig(
-                        system_instruction=_SYSTEM_INSTRUCTION,
-                        temperature=_TEMPERATURE,
-                        max_output_tokens=_MAX_OUTPUT_TOKENS,
-                        # Relax safety filters. This is an internal admin-log
-                        # translation of casual/rude/flirty anonymous chat
-                        # text, not user-facing generation. Without this,
-                        # Gemini's default thresholds silently block a large
-                        # fraction of normal chat messages and the failure
-                        # looks identical to every other [Unavailable] case.
-                        safety_settings=[
-                            types.SafetySetting(
-                                category=cat,
-                                threshold="BLOCK_NONE",
-                            )
-                            for cat in (
-                                "HARM_CATEGORY_HARASSMENT",
-                                "HARM_CATEGORY_HATE_SPEECH",
-                                "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                                "HARM_CATEGORY_DANGEROUS_CONTENT",
-                            )
-                        ],
-                    ),
+                    messages=[
+                        {"role": "system", "content": _SYSTEM_INSTRUCTION},
+                        {"role": "user", "content": cleaned},
+                    ],
+                    temperature=_TEMPERATURE,
+                    max_tokens=_MAX_OUTPUT_TOKENS,
                 ),
                 timeout=self._timeout_seconds,
             )
         except asyncio.TimeoutError as exc:
-            logger.warning("Gemini request timed out after %.1fs", self._timeout_seconds)
+            logger.warning("Groq request timed out after %.1fs", self._timeout_seconds)
             raise TranslationError("Translation request timed out.") from exc
         except Exception as exc:
-            logger.error("Gemini API call failed (%s): %s", type(exc).__name__, exc)
+            logger.error("Groq API call failed (%s): %s", type(exc).__name__, exc)
             raise TranslationError(f"Translation request failed: {exc}") from exc
 
         translated, reason = _extract_text(response)
         if not translated:
             logger.warning(
-                "Gemini returned no usable text for input %r — reason=%s",
+                "Groq returned no usable text for input %r — reason=%s",
                 cleaned[:200], reason,
             )
             raise TranslationError(f"Translation returned no usable text ({reason}).")
@@ -102,42 +106,33 @@ class GeminiTranslator:
 
 def _extract_text(response: object) -> tuple[Optional[str], str]:
     """Return (text, diagnostic_reason). text is None on any failure."""
-    # Fast path: SDK successfully assembled flat text.
-    text = getattr(response, "text", None)
-    if text and text.strip():
-        return text.strip(), "ok"
+    choices = getattr(response, "choices", None) or []
+    if not choices:
+        return None, "no_choices"
 
-    # Slow path: figure out *why* there's no text, from candidates.
-    candidates = getattr(response, "candidates", None) or []
-    if not candidates:
-        prompt_feedback = getattr(response, "prompt_feedback", None)
-        block_reason = getattr(prompt_feedback, "block_reason", None)
-        if block_reason:
-            return None, f"prompt_blocked:{block_reason}"
-        return None, "no_candidates"
+    choice = choices[0]
+    finish_reason = getattr(choice, "finish_reason", None)
+    message = getattr(choice, "message", None)
+    content = getattr(message, "content", None) if message else None
 
-    candidate = candidates[0]
-    finish_reason = getattr(candidate, "finish_reason", None)
-    safety_ratings = getattr(candidate, "safety_ratings", None)
+    if content and content.strip():
+        return content.strip(), "ok"
 
-    if finish_reason and str(finish_reason) not in ("STOP", "FinishReason.STOP"):
-        detail = f"finish_reason:{finish_reason}"
-        if safety_ratings:
-            blocked = [
-                str(getattr(r, "category", r))
-                for r in safety_ratings
-                if getattr(r, "blocked", False)
-            ]
-            if blocked:
-                detail += f" blocked_categories:{blocked}"
-        return None, detail
+    if finish_reason and finish_reason not in ("stop", "length"):
+        return None, f"finish_reason:{finish_reason}"
 
-    # finish_reason was STOP but there's still no text -- try pulling
-    # raw parts directly as a last resort.
-    content = getattr(candidate, "content", None)
-    parts = getattr(content, "parts", None) or []
-    joined = "".join(getattr(p, "text", "") or "" for p in parts).strip()
-    if joined:
-        return joined, "ok_via_parts"
+    return None, "empty_content"
 
-    return None, "empty_parts_with_stop"
+
+# -----------------------------------------------------------------------
+# Railway env var notes (no code changes needed beyond this file):
+#
+#   GEMINI_API_KEY        -> set this to your Groq API key (gsk_...)
+#   GEMINI_MODEL           -> set this to a Groq model name, e.g.:
+#                             llama-3.3-70b-versatile   (best quality/balance)
+#                             llama-3.1-8b-instant      (fastest, lighter)
+#   GEMINI_TIMEOUT_SECONDS -> unchanged, still works the same way
+#
+# requirements.txt also needs one change: replace `google-genai>=1.2.0`
+# with `groq>=0.11.0`.
+# -----------------------------------------------------------------------
